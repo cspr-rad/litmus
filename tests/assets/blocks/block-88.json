@@ -1,0 +1,91 @@
+{
+    "hash": "f9a215757bc9c6772befbbe5b977100cea5272fe11a20c1b5c2ae50a91ddcfdb",
+    "header": {
+        "parent_hash": "03762f9a3fdd75bc20fdc3db1c2612b0a1bfd0b7d2900e01342de31336e35db6",
+        "state_root_hash": "ac558d19987eb158c4888f59b1727f67ad1ae84f79c7ac02cbfb7d5f4ce722b6",
+        "body_hash": "bcc608eac0c4f65ea803df48eaf819730a530f60d90348e93b28514a9f6a86e6",
+        "random_bit": false,
+        "accumulated_seed": "eae1f93464872f9d74b072a22e74168b8692258e9cdf7b828b6a4cd3fef22bd0",
+        "era_end": {
+            "era_report": {
+                "equivocators": [],
+                "rewards": [
+                    {
+                        "validator": "016c07fa407f46f7381bb424fbe18c320e8184a7d3e4360acb38d2d58172a9028a",
+                        "amount": 1999999999990
+                    },
+                    {
+                        "validator": "01706f36a2ebfccea720b49a6424c196cf0bb7aa929f39842975865848b87773ef",
+                        "amount": 1999999999990
+                    },
+                    {
+                        "validator": "018b2bda41097182c387b72c41a490984aad26a64bc75cd926dee7f0b8d82b4e43",
+                        "amount": 2000000000000
+                    },
+                    {
+                        "validator": "019b5bd3e7f3c2ba280bb264928ba0d18aab832eb92714d9a455e7737e976c8a41",
+                        "amount": 2000000000000
+                    },
+                    {
+                        "validator": "01f0aaadbf1ef00a83e161eaccadaf4e499d9730a09e8979cb9e8c2d3fc4d8b6f7",
+                        "amount": 2000000000000
+                    }
+                ],
+                "inactive_validators": []
+            },
+            "next_era_validator_weights": [
+                {
+                    "validator": "016c07fa407f46f7381bb424fbe18c320e8184a7d3e4360acb38d2d58172a9028a",
+                    "weight": "2069999999999650009"
+                },
+                {
+                    "validator": "01706f36a2ebfccea720b49a6424c196cf0bb7aa929f39842975865848b87773ef",
+                    "weight": "2069999999999650011"
+                },
+                {
+                    "validator": "018b2bda41097182c387b72c41a490984aad26a64bc75cd926dee7f0b8d82b4e43",
+                    "weight": "2070000000000000020"
+                },
+                {
+                    "validator": "019b5bd3e7f3c2ba280bb264928ba0d18aab832eb92714d9a455e7737e976c8a41",
+                    "weight": "2070000000000000024"
+                },
+                {
+                    "validator": "01f0aaadbf1ef00a83e161eaccadaf4e499d9730a09e8979cb9e8c2d3fc4d8b6f7",
+                    "weight": "2070000000000000022"
+                }
+            ]
+        },
+        "timestamp": "2024-02-28T16:29:48.928Z",
+        "era_id": 8,
+        "height": 88,
+        "protocol_version": "1.0.0"
+    },
+    "body": {
+        "proposer": "01706f36a2ebfccea720b49a6424c196cf0bb7aa929f39842975865848b87773ef",
+        "deploy_hashes": [],
+        "transfer_hashes": []
+    },
+    "proofs": [
+        {
+            "public_key": "016c07fa407f46f7381bb424fbe18c320e8184a7d3e4360acb38d2d58172a9028a",
+            "signature": "0114c0e68bba0f60cc3a97f97a12a4d9e2fa2ebc9f479c5cd1010a8908f12f57fff7955dfacfd2b4d8f3630923e269568ae19a7069425dcdd46e7a2f9affc8720c"
+        },
+        {
+            "public_key": "01706f36a2ebfccea720b49a6424c196cf0bb7aa929f39842975865848b87773ef",
+            "signature": "01534f4a985490d54cd242e799d87fc5ee79c9b0c815eaca5dd9ddc1a5393f9b9a7d8e7deed63c4cbaff842ee2cb1146d85d1806c53dd980bb43590a4e7f205a02"
+        },
+        {
+            "public_key": "018b2bda41097182c387b72c41a490984aad26a64bc75cd926dee7f0b8d82b4e43",
+            "signature": "012f8ed15dc32dd5e61bbd93e7f829572befebffab99636aa6aff8515605abcde848d8093800ab3bbfa17d176869afd6f2822ce5354964a20a2c44afb9cfd7eb0e"
+        },
+        {
+            "public_key": "019b5bd3e7f3c2ba280bb264928ba0d18aab832eb92714d9a455e7737e976c8a41",
+            "signature": "01120dd08ed5784e11014742529aba016003ba3bc57138af73b036e7172b1f5f0fe48f1f1987e4bb2f6246a60a1f2a10f97dc327c11777c5a2e53a25c3f3af4001"
+        },
+        {
+            "public_key": "01f0aaadbf1ef00a83e161eaccadaf4e499d9730a09e8979cb9e8c2d3fc4d8b6f7",
+            "signature": "01bdc9ac08d2978f14a5bf203194906c87bc3d38d3fe481675f95ca01771f94de5a3d2bbf30fb5ab357f23e0a19b089750b2d9ecf2f20b28d468a2812b9aaea301"
+        }
+    ]
+}
