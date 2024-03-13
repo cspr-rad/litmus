@@ -11,9 +11,9 @@ use super::crypto::arb_pubkey;
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 // See https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/components/consensus/consensus_protocol.rs#L105-L115
 pub struct EraReport {
-    equivocators: Vec<PublicKey>,
-    rewards: BTreeMap<PublicKey, u64>,
-    inactive_validators: Vec<PublicKey>,
+    pub(crate) equivocators: Vec<PublicKey>,
+    pub(crate) rewards: BTreeMap<PublicKey, u64>,
+    pub(crate) inactive_validators: Vec<PublicKey>,
 }
 
 impl EraReport {
@@ -97,8 +97,8 @@ impl FromBytes for EraReport {
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L748-L753
 pub struct EraEnd {
-    era_report: EraReport,
-    next_era_validator_weights: BTreeMap<PublicKey, U512>,
+    pub(crate) era_report: EraReport,
+    pub(crate) next_era_validator_weights: BTreeMap<PublicKey, U512>,
 }
 
 impl EraEnd {

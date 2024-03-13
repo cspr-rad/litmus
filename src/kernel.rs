@@ -1,15 +1,15 @@
 use alloc::collections::BTreeMap;
-use casper_types::{EraId, PublicKey, Signature, U512};
+use casper_types::{EraId, PublicKey, U512};
 use core::option::Option;
 
 use crate::{
-    block::BlockHeaderWithSignatures,
+    block::{BlockHeaderWithSignatures, BlockSignatures},
     crypto::{verify, SignatureVerificationError},
 };
 
 use super::block_header::BlockHash;
 
-struct EraInfo {
+pub struct EraInfo {
     era_id: EraId,
     validator_weights: BTreeMap<PublicKey, U512>,
     total_weight: U512,
@@ -44,17 +44,19 @@ impl EraInfo {
         }
     }
 
-    fn era_id(&self) -> &EraId {
-        &self.era_id
+    pub fn era_id(&self) -> EraId {
+        self.era_id
     }
 
-    fn validate_signatures(
+    pub fn validate_signatures(
         &self,
-        block_hash: &BlockHash,
-        block_signatures: &BTreeMap<PublicKey, Signature>,
+        block_signatures: &BlockSignatures,
     ) -> Result<(), BlockSignaturesValidationError> {
         let mut block_signature_weight = U512::from(0);
-        for (public_key, signature) in block_signatures.iter() {
+        // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L2465-L2474
+        let mut signature_data = block_signatures.block_hash().as_ref().to_vec();
+        signature_data.extend_from_slice(&block_signatures.era_id().to_le_bytes());
+        for (public_key, signature) in block_signatures.proofs().iter() {
             if let Some(validator_weight) = self.validator_weights.get(public_key) {
                 block_signature_weight += *validator_weight;
             } else {
@@ -62,7 +64,7 @@ impl EraInfo {
                     public_key.clone(),
                 ));
             }
-            verify(public_key, block_hash, signature)?;
+            verify(public_key, &signature_data, signature)?;
         }
         // Check that block_signature_weight >= 2/3 * total_weight
         if U512::from(3) * block_signature_weight < U512::from(2) * self.total_weight {
@@ -75,9 +77,19 @@ impl EraInfo {
     }
 }
 
-struct ParentHashAndCurrentHeight {
+pub struct ParentHashAndCurrentHeight {
     parent_hash: BlockHash,
     current_height: u64,
+}
+
+impl ParentHashAndCurrentHeight {
+    pub fn parent_hash(&self) -> &BlockHash {
+        &self.parent_hash
+    }
+
+    pub fn current_height(&self) -> u64 {
+        self.current_height
+    }
 }
 
 pub struct LightClientKernel {
@@ -183,10 +195,8 @@ impl LightClientKernel {
                         expected_era_id: era_info.era_id().clone(),
                     })
                 } else {
-                    era_info.validate_signatures(
-                        &block_header.block_hash(),
-                        block_header_with_signatures.block_signatures().proofs(),
-                    )?;
+                    era_info
+                        .validate_signatures(block_header_with_signatures.block_signatures())?;
                     self.latest_block_hash = block_header.block_hash();
                     self.parent_hash_and_current_height = Some(ParentHashAndCurrentHeight {
                         parent_hash: block_header.parent_hash().clone(),
@@ -202,5 +212,17 @@ impl LightClientKernel {
                 }
             }
         }
+    }
+
+    pub fn latest_block_hash(&self) -> &BlockHash {
+        &self.latest_block_hash
+    }
+
+    pub fn parent_hash_and_current_height(&self) -> Option<&ParentHashAndCurrentHeight> {
+        self.parent_hash_and_current_height.as_ref()
+    }
+
+    pub fn era_info(&self) -> Option<&EraInfo> {
+        self.era_info.as_ref()
     }
 }

@@ -21,17 +21,6 @@ pub(crate) fn arb_pubkey() -> impl Strategy<Value = PublicKey> {
     arb_secret_key().prop_map(|secret_key| PublicKey::from(&secret_key))
 }
 
-// Helper function for generating random signatures.
-pub(crate) fn arb_signature() -> impl Strategy<Value = Signature> {
-    prop_oneof![
-        any::<[u8; SecretKey::ED25519_LENGTH]>()
-            .prop_map(|bytes| SecretKey::ed25519_from_bytes(bytes).unwrap()),
-        any::<[u8; SecretKey::SECP256K1_LENGTH]>()
-            .prop_map(|bytes| SecretKey::secp256k1_from_bytes(bytes).unwrap()),
-    ]
-    .prop_map(|secret_key| sign(&secret_key, &[42u8; 32]))
-}
-
 // Signs the given message using the given key.
 pub fn sign<T: AsRef<[u8]>>(secret_key: &SecretKey, message: T) -> Signature {
     match secret_key {

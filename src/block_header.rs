@@ -81,9 +81,9 @@ impl Arbitrary for Timestamp {
 impl Serialize for Timestamp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
-            let datetime = OffsetDateTime::from_unix_timestamp(self.0 as i64)
+            let datetime = OffsetDateTime::from_unix_timestamp_nanos((self.0 * 1_000_000) as i128)
                 .map_err(serde::ser::Error::custom)?;
-            // Note: this serializes to "1970-01-01T00:00:00Z" while casper_types::Timestamp serializes to "1970-01-01T00:00:00.000Z"
+            // Note: this serializes to "1970-01-01T00:00:00.000000000Z" while casper_types::Timestamp serializes to "1970-01-01T00:00:00.000Z"
             // On the other hand we can deserialize both formats so it doesn't really matter.
             time::serde::rfc3339::serialize(&datetime, serializer)
         } else {
@@ -96,8 +96,8 @@ impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         if deserializer.is_human_readable() {
             let datetime = time::serde::rfc3339::deserialize(deserializer)?;
-            let timestamp = datetime.unix_timestamp();
-            Ok(Timestamp(timestamp as u64))
+            let timestamp = datetime.unix_timestamp_nanos();
+            Ok(Timestamp((timestamp as u64) / 1_000_000))
         } else {
             let inner = u64::deserialize(deserializer)?;
             Ok(Timestamp(inner))
@@ -189,20 +189,20 @@ impl BlockHeader {
         self.era_end.as_ref()
     }
 
-    pub fn timestamp(&self) -> &Timestamp {
-        &self.timestamp
+    pub fn timestamp(&self) -> Timestamp {
+        self.timestamp
     }
 
-    pub fn era_id(&self) -> &EraId {
-        &self.era_id
+    pub fn era_id(&self) -> EraId {
+        self.era_id
     }
 
     pub fn height(&self) -> u64 {
         self.height
     }
 
-    pub fn protocol_version(&self) -> &ProtocolVersion {
-        &self.protocol_version
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
     }
 
     pub fn block_hash(&self) -> BlockHash {
