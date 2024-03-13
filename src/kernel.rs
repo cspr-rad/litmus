@@ -143,6 +143,12 @@ impl LightClientKernel {
                         parent_hash,
                         current_height,
                     });
+                    if let Some(era_end) = block_header.era_end() {
+                        self.era_info = Some(EraInfo::new(
+                            block_header.era_id().successor(),
+                            era_end.next_era_validator_weights().clone(),
+                        ));
+                    }
                     Ok(())
                 } else {
                     Err(LightClientUpdateError::InvalidBlockHashWhenInitializing)

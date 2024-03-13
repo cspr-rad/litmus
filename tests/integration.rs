@@ -117,3 +117,14 @@ fn update_kernel_one() {
     let result = kernel.update(block.block_header_with_signatures());
     assert!(result.is_ok());
 }
+
+#[test]
+fn update_kernel_history() {
+    let mut kernel = LightClientKernel::new(BLOCKS_MAP.get(&0).unwrap().hash().clone());
+    for height in 0..BLOCKS_MAP.len() {
+        let json_block = BLOCKS_MAP.get(&(height as u64)).unwrap();
+        let block = Block::try_from(json_block.clone()).unwrap();
+        kernel.update(block.block_header_with_signatures()).unwrap();
+        assert_eq!(kernel.latest_block_hash(), json_block.hash());
+    }
+}
