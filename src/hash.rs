@@ -1,9 +1,13 @@
 use alloc::{string::String, vec::Vec};
 use casper_types::bytesrepr::{FromBytes, ToBytes};
+use itertools::Itertools;
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const DIGEST_LENGTH: usize = 32;
+const SENTINEL_MERKLE_TREE: Digest = Digest([2u8; DIGEST_LENGTH]);
+const CHUNK_SIZE_BYTES: usize = 8 * 1024 * 1024;
+const CHUNK_DATA_ZEROED: [u8; CHUNK_SIZE_BYTES] = [0u8; CHUNK_SIZE_BYTES];
 
 #[derive(Arbitrary, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/hashing/src/lib.rs#L48
@@ -18,6 +22,55 @@ impl Digest {
             .try_into()
             .unwrap_or_else(|_| panic!("should be {} bytes long", DIGEST_LENGTH));
         Digest(hashed_data)
+    }
+
+    fn hash_pair<T: AsRef<[u8]>, U: AsRef<[u8]>>(data1: T, data2: U) -> Digest {
+        let hashed_data: [u8; DIGEST_LENGTH] = blake2b_simd::Params::new()
+            .hash_length(DIGEST_LENGTH)
+            .to_state()
+            .update(data1.as_ref())
+            .update(data2.as_ref())
+            .finalize()
+            .as_bytes()
+            .try_into()
+            .unwrap_or_else(|_| panic!("should be {} bytes long", DIGEST_LENGTH));
+        Digest(hashed_data)
+    }
+
+    fn hash_merkle_root(leaf_count: u64, root: Digest) -> Digest {
+        let hashed_data: [u8; DIGEST_LENGTH] = blake2b_simd::Params::new()
+            .hash_length(DIGEST_LENGTH)
+            .to_state()
+            .update(&CHUNK_DATA_ZEROED)
+            .update(&leaf_count.to_le_bytes())
+            .update(root.as_ref())
+            .finalize()
+            .as_bytes()
+            .try_into()
+            .unwrap_or_else(|_| panic!("should be {} bytes long", DIGEST_LENGTH));
+        Digest(hashed_data)
+    }
+
+    fn hash_merkle_tree<I>(leaves: I) -> Digest
+    where
+        I: IntoIterator<Item = Digest>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let leaves = leaves.into_iter();
+        let leaf_count = leaves.len() as u64;
+
+        leaves.tree_fold1(Digest::hash_pair).map_or_else(
+            || SENTINEL_MERKLE_TREE,
+            |raw_root| Digest::hash_merkle_root(leaf_count, raw_root),
+        )
+    }
+
+    pub fn hash_into_chunks_if_necessary(bytes: &[u8]) -> Digest {
+        if bytes.len() <= CHUNK_SIZE_BYTES {
+            Digest::hash(bytes)
+        } else {
+            Digest::hash_merkle_tree(bytes.chunks(CHUNK_SIZE_BYTES).map(Digest::hash))
+        }
     }
 }
 
