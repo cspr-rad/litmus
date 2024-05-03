@@ -1,10 +1,12 @@
 use alloc::vec::Vec;
+
+#[cfg(test)]
+use proptest::arbitrary::Arbitrary;
+#[cfg(test)]
+use proptest::prelude::*;
+
 use casper_types::bytesrepr::{FromBytes, ToBytes};
 use casper_types::{EraId, ProtocolVersion};
-use proptest::arbitrary::Arbitrary;
-use proptest::prelude::*;
-use proptest_derive::Arbitrary;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use time::OffsetDateTime;
 
 use super::consensus::EraEnd;
@@ -12,8 +14,9 @@ use super::hash::Digest;
 use super::hash::DIGEST_LENGTH;
 
 #[derive(
-    Arbitrary, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize, Debug,
+    Clone, Default, Ord, PartialOrd, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize,
 )]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L648
 pub struct BlockHash(Digest);
 
@@ -69,6 +72,7 @@ impl FromBytes for BlockHash {
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/types/src/timestamp.rs#L32-L40
 pub struct Timestamp(u64);
 
+#[cfg(test)]
 impl Arbitrary for Timestamp {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -78,8 +82,8 @@ impl Arbitrary for Timestamp {
     }
 }
 
-impl Serialize for Timestamp {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl serde::Serialize for Timestamp {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             let datetime = OffsetDateTime::from_unix_timestamp_nanos((self.0 * 1_000_000) as i128)
                 .map_err(serde::ser::Error::custom)?;
@@ -92,8 +96,8 @@ impl Serialize for Timestamp {
     }
 }
 
-impl<'de> Deserialize<'de> for Timestamp {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+impl<'de> serde::Deserialize<'de> for Timestamp {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         if deserializer.is_human_readable() {
             let datetime = time::serde::rfc3339::deserialize(deserializer)?;
             let timestamp = datetime.unix_timestamp_nanos();
@@ -123,7 +127,8 @@ impl FromBytes for Timestamp {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L813-L828
 pub struct BlockHeader {
     parent_hash: BlockHash,
@@ -210,6 +215,7 @@ impl BlockHeader {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for BlockHeader {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -323,7 +329,7 @@ impl FromBytes for BlockHeader {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     extern crate std;
 
     use alloc::borrow::ToOwned;

@@ -6,13 +6,12 @@ use alloc::{boxed::Box, vec::Vec};
 
 use casper_types::{
     bytesrepr::{self, Bytes, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
-    gens::{key_arb, stored_value_arb},
     Key, StoredValue,
 };
+#[cfg(test)]
 use proptest::prelude::*;
-use proptest_derive::Arbitrary;
 
-use crate::hash::{Digest, DIGEST_LENGTH};
+use super::hash::{Digest, DIGEST_LENGTH};
 
 const TRIE_MERKLE_PROOF_STEP_NODE_ID: u8 = 0;
 const TRIE_MERKLE_PROOF_STEP_EXTENSION_ID: u8 = 1;
@@ -33,6 +32,7 @@ impl Pointer {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for Pointer {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -89,7 +89,8 @@ pub type PointerBlockValue = Option<Pointer>;
 
 pub type PointerBlockArray = [PointerBlockValue; RADIX];
 
-#[derive(Arbitrary, Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct PointerBlock(PointerBlockArray);
 
 impl PointerBlock {
@@ -199,13 +200,18 @@ impl Trie {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for Trie {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
-            (key_arb(), stored_value_arb()).prop_map(|(key, value)| Trie::Leaf { key, value }),
+            (
+                casper_types::gens::key_arb(),
+                casper_types::gens::stored_value_arb()
+            )
+                .prop_map(|(key, value)| Trie::Leaf { key, value }),
             any::<PointerBlock>().prop_map(|pointer_block| Trie::Node {
                 pointer_block: Box::new(pointer_block)
             }),
@@ -287,6 +293,7 @@ impl TrieMerkleProofStep {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for TrieMerkleProofStep {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -441,14 +448,15 @@ impl TrieMerkleProof {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for TrieMerkleProof {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         (
-            key_arb(),
-            stored_value_arb(),
+            casper_types::gens::key_arb(),
+            casper_types::gens::stored_value_arb(),
             proptest::collection::vec(<TrieMerkleProofStep>::arbitrary(), 1..=6),
         )
             .prop_map(|(key, value, proof_steps)| {
@@ -491,7 +499,7 @@ impl FromBytes for TrieMerkleProof {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     extern crate std;
 
     use casper_execution_engine::storage::trie::merkle_proof::TrieMerkleProof as CasperTrieMerkleProof;

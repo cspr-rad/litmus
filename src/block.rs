@@ -1,22 +1,23 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 
+#[cfg(test)]
+use casper_types::{crypto::gens::public_key_arb, SecretKey};
+#[cfg(test)]
+use proptest::prelude::*;
+
 use casper_types::{
     bytesrepr::{FromBytes, ToBytes},
     EraId, PublicKey, Signature,
 };
-use proptest::prelude::*;
-use proptest_derive::Arbitrary;
-use serde::{Deserialize, Serialize};
-
-use crate::crypto::{arb_secret_key, sign, verify, SignatureVerificationError};
 
 use super::{
     block_header::{BlockHash, BlockHeader},
-    crypto::arb_pubkey,
+    crypto::{verify, SignatureVerificationError},
     hash::Digest,
 };
 
-#[derive(Clone, Debug, PartialOrd, Ord, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialOrd, Ord, Eq, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1324-L1332
 pub struct BlockSignatures {
     block_hash: BlockHash,
@@ -55,6 +56,7 @@ impl BlockSignatures {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for BlockSignatures {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -64,9 +66,14 @@ impl Arbitrary for BlockSignatures {
             any::<BlockHash>(),
             any::<u64>(), // EraId
             prop::collection::vec(
-                arb_secret_key().prop_filter("Not System key", |secret_key| {
-                    !matches!(secret_key, casper_types::SecretKey::System)
-                }),
+                prop_oneof![
+                    any::<[u8; SecretKey::ED25519_LENGTH]>()
+                        .prop_map(|bytes| SecretKey::ed25519_from_bytes(bytes).unwrap()),
+                    any::<[u8; SecretKey::SECP256K1_LENGTH]>()
+                        .prop_filter("Cannot make a secret key from [0u8; 32]", |bytes| bytes
+                            != &[0u8; SecretKey::SECP256K1_LENGTH])
+                        .prop_map(|bytes| SecretKey::secp256k1_from_bytes(bytes).unwrap()),
+                ],
                 0..5,
             ),
         )
@@ -78,7 +85,7 @@ impl Arbitrary for BlockSignatures {
                     .into_iter()
                     .map(|secret_key| {
                         let public_key = PublicKey::from(&secret_key);
-                        let signature = sign(&secret_key, &signature_data);
+                        let signature = crate::crypto::sign(&secret_key, &signature_data);
                         (public_key, signature)
                     })
                     .collect();
@@ -92,7 +99,7 @@ impl Arbitrary for BlockSignatures {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1184-L1188
 pub struct BlockHeaderWithSignatures {
     block_header: BlockHeader,
@@ -146,6 +153,7 @@ impl BlockHeaderWithSignatures {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for BlockHeaderWithSignatures {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -165,8 +173,9 @@ impl Arbitrary for BlockHeaderWithSignatures {
 }
 
 #[derive(
-    Arbitrary, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize, Debug,
+    Clone, Default, Ord, PartialOrd, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize,
 )]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/deploy/deploy_hash.rs#L32
 pub struct DeployHash(Digest);
 
@@ -192,7 +201,7 @@ impl FromBytes for DeployHash {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1204C14-L1204C15
 pub struct BlockBody {
     proposer: PublicKey,
@@ -230,13 +239,14 @@ impl BlockBody {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for BlockBody {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         (
-            arb_pubkey(),
+            public_key_arb(),
             prop::collection::vec(any::<DeployHash>(), 0..5),
             prop::collection::vec(any::<DeployHash>(), 0..5),
         )
@@ -325,6 +335,7 @@ impl Block {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for Block {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -345,8 +356,7 @@ mod test {
 
     use alloc::collections::BTreeMap;
 
-    use casper_types::PublicKey;
-    use casper_types::{bytesrepr::ToBytes, EraId};
+    use casper_types::{bytesrepr::ToBytes, EraId, PublicKey};
     use test_strategy::proptest;
 
     use crate::{block_header::BlockHash, crypto::sign, hash::DIGEST_LENGTH};

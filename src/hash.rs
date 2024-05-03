@@ -1,16 +1,15 @@
 use alloc::{string::String, vec::Vec};
 use casper_types::bytesrepr::{FromBytes, ToBytes};
 use itertools::Itertools;
-use proptest_derive::Arbitrary;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const DIGEST_LENGTH: usize = 32;
 const SENTINEL_MERKLE_TREE: Digest = Digest([2u8; DIGEST_LENGTH]);
 const CHUNK_SIZE_BYTES: usize = 8 * 1024 * 1024;
 const CHUNK_DATA_ZEROED: [u8; CHUNK_SIZE_BYTES] = [0u8; CHUNK_SIZE_BYTES];
 
-#[derive(Arbitrary, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/hashing/src/lib.rs#L48
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Digest([u8; DIGEST_LENGTH]);
 
 impl Digest {
@@ -115,8 +114,8 @@ impl FromBytes for Digest {
 }
 
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/hashing/src/lib.rs#L341-L367
-impl Serialize for Digest {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl serde::Serialize for Digest {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             base16::encode_lower(&self.0).serialize(serializer)
         } else {
@@ -125,8 +124,8 @@ impl Serialize for Digest {
     }
 }
 
-impl<'de> Deserialize<'de> for Digest {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+impl<'de> serde::Deserialize<'de> for Digest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let bytes: Vec<u8>;
 
         if deserializer.is_human_readable() {
@@ -143,7 +142,7 @@ impl<'de> Deserialize<'de> for Digest {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     extern crate std;
 
     use alloc::vec::Vec;
