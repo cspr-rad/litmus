@@ -360,6 +360,10 @@ pub enum JsonBlockConversionError {
         block_hash: BlockHash,
         header_hash: BlockHash,
     },
+    InvalidBlockBodyHash {
+        actual_body_hash: Digest,
+        header_body_hash: Digest,
+    },
     SignatureVerificationError(SignatureVerificationError),
     BlockHeaderWithSignaturesConstructionError(BlockHeaderWithSignaturesConstructionError),
     BlockConstructionError(BlockConstructionError),
@@ -392,6 +396,13 @@ impl TryFrom<JsonBlock> for Block {
                 .collect(),
         )
         .map_err(JsonBlockConversionError::SignatureVerificationError)?;
+        let actual_body_hash = body.hash();
+        if actual_body_hash != *block_header.body_hash() {
+            return Err(JsonBlockConversionError::InvalidBlockBodyHash {
+                actual_body_hash,
+                header_body_hash: block_header.body_hash().clone(),
+            });
+        }
         let header = BlockHeaderWithSignatures::new(block_header, block_signatures)
             .map_err(JsonBlockConversionError::BlockHeaderWithSignaturesConstructionError)?;
         Ok(Block::new(header, body).map_err(JsonBlockConversionError::BlockConstructionError)?)
