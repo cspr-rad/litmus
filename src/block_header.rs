@@ -1,9 +1,7 @@
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 #[cfg(test)]
-use proptest::arbitrary::Arbitrary;
-#[cfg(test)]
-use proptest::prelude::*;
+use proptest::{arbitrary::Arbitrary, prelude::*};
 
 use casper_types::bytesrepr::{FromBytes, ToBytes};
 use casper_types::{EraId, ProtocolVersion};
@@ -19,6 +17,12 @@ use super::hash::DIGEST_LENGTH;
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L648
 pub struct BlockHash(Digest);
+
+impl BlockHash {
+    pub fn to_hex(&self) -> String {
+        self.0.to_hex()
+    }
+}
 
 impl AsRef<[u8]> for BlockHash {
     fn as_ref(&self) -> &[u8] {

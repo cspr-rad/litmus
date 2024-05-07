@@ -71,6 +71,10 @@ impl Digest {
             Digest::hash_merkle_tree(bytes.chunks(CHUNK_SIZE_BYTES).map(Digest::hash))
         }
     }
+
+    pub fn to_hex(&self) -> String {
+        base16::encode_lower(&self.0)
+    }
 }
 
 impl AsRef<[u8]> for Digest {
