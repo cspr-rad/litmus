@@ -1,35 +1,18 @@
-use casper_types::{PublicKey, SecretKey, Signature};
+#[cfg(test)]
 use ed25519_dalek::Signer;
+
+use casper_types::{PublicKey, Signature};
 use k256::ecdsa::{signature::Verifier, VerifyingKey as Secp256k1PublicKey};
-use proptest::prelude::*;
 
-// Helper function for generating arbitrary secret keys.
-pub(crate) fn arb_secret_key() -> impl Strategy<Value = SecretKey> {
-    prop_oneof![
-        any::<()>().prop_map(|_| SecretKey::System),
-        any::<[u8; SecretKey::ED25519_LENGTH]>()
-            .prop_map(|bytes| SecretKey::ed25519_from_bytes(bytes).unwrap()),
-        any::<[u8; SecretKey::SECP256K1_LENGTH]>()
-            .prop_filter("Cannot make a secret key from [0u8; 32]", |bytes| bytes
-                != &[0u8; SecretKey::SECP256K1_LENGTH])
-            .prop_map(|bytes| SecretKey::secp256k1_from_bytes(bytes).unwrap()),
-    ]
-}
-
-// Helper function for generating arbitrary public keys.
-pub(crate) fn arb_pubkey() -> impl Strategy<Value = PublicKey> {
-    arb_secret_key().prop_map(|secret_key| PublicKey::from(&secret_key))
-}
-
-// Signs the given message using the given key.
-pub fn sign<T: AsRef<[u8]>>(secret_key: &SecretKey, message: T) -> Signature {
+#[cfg(test)]
+pub fn sign<T: AsRef<[u8]>>(secret_key: &casper_types::SecretKey, message: T) -> Signature {
     match secret_key {
-        SecretKey::System => Signature::System,
-        SecretKey::Ed25519(secret_key) => {
+        casper_types::SecretKey::System => Signature::System,
+        casper_types::SecretKey::Ed25519(secret_key) => {
             let signature = secret_key.sign(message.as_ref());
             Signature::Ed25519(signature)
         }
-        SecretKey::Secp256k1(secret_key) => {
+        casper_types::SecretKey::Secp256k1(secret_key) => {
             let signature = secret_key
                 .try_sign(message.as_ref())
                 .expect("should create signature");
@@ -68,7 +51,7 @@ pub fn verify<T: AsRef<[u8]>>(
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     extern crate std;
 
     use alloc::vec::Vec;

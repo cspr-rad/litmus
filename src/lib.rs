@@ -10,3 +10,4 @@ pub(crate) mod crypto;
 pub mod hash;
 pub mod json_compatibility;
 pub mod kernel;
+pub mod merkle_proof;

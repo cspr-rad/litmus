@@ -3,7 +3,7 @@ use casper_types::{EraId, PublicKey, U512};
 use core::option::Option;
 
 use crate::{
-    block::{BlockHeaderWithSignatures, BlockSignatures},
+    block::BlockHeaderWithSignatures,
     crypto::{verify, SignatureVerificationError},
 };
 
@@ -17,6 +17,10 @@ pub struct EraInfo {
 
 #[derive(Debug)]
 pub enum BlockSignaturesValidationError {
+    WrongEraId {
+        trusted_era_id: EraId,
+        block_header_era_id: EraId,
+    },
     BogusValidator(PublicKey),
     SignatureVerificationError(SignatureVerificationError),
     InsufficientWeight {
@@ -32,7 +36,7 @@ impl From<SignatureVerificationError> for BlockSignaturesValidationError {
 }
 
 impl EraInfo {
-    fn new(era_id: EraId, validator_weights: BTreeMap<PublicKey, U512>) -> Self {
+    pub fn new(era_id: EraId, validator_weights: BTreeMap<PublicKey, U512>) -> Self {
         let total_weight = validator_weights
             .values()
             .into_iter()
@@ -48,15 +52,26 @@ impl EraInfo {
         self.era_id
     }
 
-    pub fn validate_signatures(
+    pub fn validate(
         &self,
-        block_signatures: &BlockSignatures,
+        block_header_with_signatures: &BlockHeaderWithSignatures,
     ) -> Result<(), BlockSignaturesValidationError> {
         let mut block_signature_weight = U512::from(0);
+        let block_header = block_header_with_signatures.block_header();
+        if block_header.era_id() != self.era_id {
+            return Err(BlockSignaturesValidationError::WrongEraId {
+                trusted_era_id: self.era_id,
+                block_header_era_id: block_header_with_signatures.block_header().era_id(),
+            });
+        }
         // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L2465-L2474
-        let mut signature_data = block_signatures.block_hash().as_ref().to_vec();
-        signature_data.extend_from_slice(&block_signatures.era_id().to_le_bytes());
-        for (public_key, signature) in block_signatures.proofs().iter() {
+        let mut signature_data = block_header.block_hash().as_ref().to_vec();
+        signature_data.extend_from_slice(&block_header.era_id().to_le_bytes());
+        for (public_key, signature) in block_header_with_signatures
+            .block_signatures()
+            .proofs()
+            .iter()
+        {
             if let Some(validator_weight) = self.validator_weights.get(public_key) {
                 block_signature_weight += *validator_weight;
             } else {
@@ -65,15 +80,16 @@ impl EraInfo {
                 ));
             }
             verify(public_key, &signature_data, signature)?;
+
+            // If the block has `block_signature_weight >= 2/3 * total_weight`, its okay
+            if U512::from(3) * block_signature_weight >= U512::from(2) * self.total_weight {
+                return Ok(());
+            }
         }
-        // Check that block_signature_weight >= 2/3 * total_weight
-        if U512::from(3) * block_signature_weight < U512::from(2) * self.total_weight {
-            return Err(BlockSignaturesValidationError::InsufficientWeight {
-                bad_signature_weight: block_signature_weight,
-                total_weight: self.total_weight.clone(),
-            });
-        }
-        Ok(())
+        Err(BlockSignaturesValidationError::InsufficientWeight {
+            bad_signature_weight: block_signature_weight,
+            total_weight: self.total_weight.clone(),
+        })
     }
 }
 
@@ -105,10 +121,6 @@ pub enum LightClientUpdateError {
     BlockInPastWhenProgressing {
         bad_block_height: u64,
         current_height: u64,
-    },
-    WrongEraId {
-        bad_era_id: EraId,
-        expected_era_id: EraId,
     },
     InvalidSignatures(BlockSignaturesValidationError),
 }
@@ -190,19 +202,13 @@ impl LightClientKernel {
                 }),
                 Some(era_info),
             ) => {
-                if block_header.height() != current_height + 1 {
+                if block_header.height() <= *current_height {
                     Err(LightClientUpdateError::BlockInPastWhenProgressing {
                         bad_block_height: block_header.height(),
                         current_height: *current_height,
                     })
-                } else if block_header.era_id() != era_info.era_id() {
-                    Err(LightClientUpdateError::WrongEraId {
-                        bad_era_id: block_header.era_id().clone(),
-                        expected_era_id: era_info.era_id().clone(),
-                    })
                 } else {
-                    era_info
-                        .validate_signatures(block_header_with_signatures.block_signatures())?;
+                    era_info.validate(block_header_with_signatures)?;
                     self.latest_block_hash = block_header.block_hash();
                     self.parent_hash_and_current_height = Some(ParentHashAndCurrentHeight {
                         parent_hash: block_header.parent_hash().clone(),

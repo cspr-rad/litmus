@@ -1,14 +1,15 @@
 use alloc::{collections::BTreeMap, vec::Vec};
+
+#[cfg(test)]
+use proptest::prelude::*;
+
 use casper_types::{
     bytesrepr::{FromBytes, ToBytes},
     PublicKey, U512,
 };
-use proptest::prelude::*;
-use serde::{Deserialize, Serialize};
 
-use super::crypto::arb_pubkey;
-
-#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 // See https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/components/consensus/consensus_protocol.rs#L105-L115
 pub struct EraReport {
     pub(crate) equivocators: Vec<PublicKey>,
@@ -42,15 +43,20 @@ impl EraReport {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for EraReport {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         (
-            proptest::collection::vec(arb_pubkey(), 0..5),
-            proptest::collection::btree_map(arb_pubkey(), any::<u64>(), 0..5),
-            proptest::collection::vec(arb_pubkey(), 0..5),
+            proptest::collection::vec(casper_types::crypto::gens::public_key_arb(), 0..5),
+            proptest::collection::btree_map(
+                casper_types::crypto::gens::public_key_arb(),
+                any::<u64>(),
+                0..5,
+            ),
+            proptest::collection::vec(casper_types::crypto::gens::public_key_arb(), 0..5),
         )
             .prop_map(|(equivocators, rewards, inactive_validators)| EraReport {
                 equivocators,
@@ -94,7 +100,8 @@ impl FromBytes for EraReport {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L748-L753
 pub struct EraEnd {
     pub(crate) era_report: EraReport,
@@ -121,6 +128,7 @@ impl EraEnd {
     }
 }
 
+#[cfg(test)]
 impl Arbitrary for EraEnd {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
@@ -128,7 +136,11 @@ impl Arbitrary for EraEnd {
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         (
             any::<EraReport>(),
-            proptest::collection::btree_map(arb_pubkey(), any::<u128>().prop_map(U512::from), 0..5),
+            proptest::collection::btree_map(
+                casper_types::crypto::gens::public_key_arb(),
+                any::<u128>().prop_map(U512::from),
+                0..5,
+            ),
         )
             .prop_map(|(era_report, next_era_validator_weights)| EraEnd {
                 era_report,
@@ -166,7 +178,7 @@ impl FromBytes for EraEnd {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     extern crate std;
 
     use casper_types::bytesrepr::{deserialize_from_slice, ToBytes};
