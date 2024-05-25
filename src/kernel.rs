@@ -81,8 +81,8 @@ impl EraInfo {
             }
             verify(public_key, &signature_data, signature)?;
 
-            // If the block has `block_signature_weight >= 2/3 * total_weight`, its okay
-            if U512::from(3) * block_signature_weight >= U512::from(2) * self.total_weight {
+            // If the block has `block_signature_weight >= 1/3 * total_weight`, its okay
+            if U512::from(3) * block_signature_weight >= * self.total_weight {
                 return Ok(());
             }
         }
