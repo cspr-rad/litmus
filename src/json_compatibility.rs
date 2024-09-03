@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     block::{
-        Block, BlockBody, BlockConstructionError, BlockHeaderWithSignatures,
+        Block, BlockBodyV1, BlockConstructionError, BlockHeaderWithSignatures,
         BlockHeaderWithSignaturesConstructionError, BlockSignatures,
     },
-    block_header::{BlockHash, BlockHeader, Timestamp},
-    consensus::{EraEnd, EraReport},
+    block_header::{BlockHash, BlockHeaderV1, Timestamp},
+    consensus::{EraEndV1, EraReport},
     crypto::SignatureVerificationError,
     hash::Digest,
 };
@@ -82,10 +82,7 @@ impl From<EraReport> for JsonEraReport {
         } = era_report;
         let rewards = rewards
             .into_iter()
-            .map(|(validator, amount)| Reward {
-                validator: validator,
-                amount: amount,
-            })
+            .map(|(validator, amount)| Reward { validator, amount })
             .collect();
         JsonEraReport {
             equivocators,
@@ -131,8 +128,8 @@ impl JsonEraEnd {
     }
 }
 
-impl From<EraEnd> for JsonEraEnd {
-    fn from(era_end: EraEnd) -> Self {
+impl From<EraEndV1> for JsonEraEnd {
+    fn from(era_end: EraEndV1) -> Self {
         let era_report = JsonEraReport::from(era_end.era_report);
         let next_era_validator_weights = era_end
             .next_era_validator_weights
@@ -149,7 +146,7 @@ impl From<EraEnd> for JsonEraEnd {
     }
 }
 
-impl From<JsonEraEnd> for EraEnd {
+impl From<JsonEraEnd> for EraEndV1 {
     fn from(json_data: JsonEraEnd) -> Self {
         let era_report = EraReport::from(json_data.era_report);
         let next_era_validator_weights = json_data
@@ -157,7 +154,7 @@ impl From<JsonEraEnd> for EraEnd {
             .iter()
             .map(|validator_weight| (validator_weight.validator.clone(), validator_weight.weight))
             .collect();
-        EraEnd {
+        EraEndV1 {
             era_report,
             next_era_validator_weights,
         }
@@ -222,8 +219,8 @@ impl JsonBlockHeader {
     }
 }
 
-impl From<BlockHeader> for JsonBlockHeader {
-    fn from(block_header: BlockHeader) -> Self {
+impl From<BlockHeaderV1> for JsonBlockHeader {
+    fn from(block_header: BlockHeaderV1) -> Self {
         JsonBlockHeader {
             parent_hash: block_header.parent_hash().clone(),
             state_root_hash: block_header.state_root_hash().clone(),
@@ -239,7 +236,7 @@ impl From<BlockHeader> for JsonBlockHeader {
     }
 }
 
-impl From<JsonBlockHeader> for BlockHeader {
+impl From<JsonBlockHeader> for BlockHeaderV1 {
     fn from(block_header: JsonBlockHeader) -> Self {
         let JsonBlockHeader {
             parent_hash,
@@ -253,8 +250,8 @@ impl From<JsonBlockHeader> for BlockHeader {
             height,
             protocol_version,
         } = block_header;
-        let era_end = era_end.map(EraEnd::from);
-        BlockHeader::new(
+        let era_end = era_end.map(EraEndV1::from);
+        BlockHeaderV1::new(
             parent_hash,
             state_root_hash,
             body_hash,
@@ -308,7 +305,7 @@ impl From<JsonProof> for (PublicKey, Signature) {
 pub struct JsonBlock {
     hash: BlockHash,
     header: JsonBlockHeader,
-    body: BlockBody,
+    body: BlockBodyV1,
     proofs: Vec<JsonProof>,
 }
 
@@ -321,7 +318,7 @@ impl JsonBlock {
         &self.header
     }
 
-    pub fn body(&self) -> &BlockBody {
+    pub fn body(&self) -> &BlockBodyV1 {
         &self.body
     }
 
@@ -342,8 +339,8 @@ impl From<Block> for JsonBlock {
             .block_header_with_signatures()
             .block_signatures()
             .proofs()
-            .into_iter()
-            .map(|(pubkey, signature)| JsonProof::from((pubkey.clone(), signature.clone())))
+            .iter()
+            .map(|(pubkey, signature)| JsonProof::from((pubkey.clone(), *signature)))
             .collect();
         JsonBlock {
             hash,
@@ -379,7 +376,7 @@ impl TryFrom<JsonBlock> for Block {
             body,
             proofs,
         } = json_block;
-        let block_header = BlockHeader::from(header);
+        let block_header = BlockHeaderV1::from(header);
         let header_hash = block_header.block_hash();
         if block_hash != header_hash {
             return Err(JsonBlockConversionError::InvalidBlockHash {
@@ -405,7 +402,7 @@ impl TryFrom<JsonBlock> for Block {
         }
         let header = BlockHeaderWithSignatures::new(block_header, block_signatures)
             .map_err(JsonBlockConversionError::BlockHeaderWithSignaturesConstructionError)?;
-        Ok(Block::new(header, body).map_err(JsonBlockConversionError::BlockConstructionError)?)
+        Block::new(header, body).map_err(JsonBlockConversionError::BlockConstructionError)
     }
 }
 
@@ -416,8 +413,8 @@ mod test {
     use test_strategy::proptest;
 
     use crate::{
-        block_header::BlockHeader,
-        consensus::{EraEnd, EraReport},
+        block_header::BlockHeaderV1,
+        consensus::{EraEndV1, EraReport},
     };
 
     use super::{JsonBlockHeader, JsonEraEnd, JsonEraReport};
@@ -430,16 +427,16 @@ mod test {
     }
 
     #[proptest]
-    fn era_end_round_trip(era_end: EraEnd) {
+    fn era_end_round_trip(era_end: EraEndV1) {
         let json_era_end = JsonEraEnd::from(era_end.clone());
-        let round_trip_era_end = EraEnd::from(json_era_end);
+        let round_trip_era_end = EraEndV1::from(json_era_end);
         assert_eq!(era_end, round_trip_era_end);
     }
 
     #[proptest]
-    fn block_header_round_trip(block_header: BlockHeader) {
+    fn block_header_round_trip(block_header: BlockHeaderV1) {
         let json_block_header = JsonBlockHeader::from(block_header.clone());
-        let round_trip_block_header = BlockHeader::from(json_block_header);
+        let round_trip_block_header = BlockHeaderV1::from(json_block_header);
         assert_eq!(block_header, round_trip_block_header);
     }
 }

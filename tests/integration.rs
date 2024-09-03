@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use casper_litmus::{
-    block::{Block, BlockBody},
-    block_header::BlockHeader,
+    block::{Block, BlockBodyV1},
+    block_header::BlockHeaderV1,
     json_compatibility::{JsonBlock, JsonBlockHeader},
     kernel::LightClientKernel,
     merkle_proof::{process_query_proofs, TrieMerkleProof},
@@ -50,33 +50,36 @@ fn first_entry_in_blocks_map_is_correct() {
 fn json_block_header_round_trip() {
     let json_block: JsonBlock =
         serde_json::from_str(include_str!("assets/blocks/block-0.json")).unwrap();
-    let converted_block_header = BlockHeader::from(json_block.header().clone());
+    let converted_block_header = BlockHeaderV1::from(json_block.header().clone());
     let reconstituted_json_block_header = JsonBlockHeader::from(converted_block_header.clone());
     assert_eq!(json_block.header(), &reconstituted_json_block_header);
 }
 
 #[test]
 fn parse_and_validate_hash_of_block() {
-    let casper_node_json_block: casper_node::types::JsonBlock =
+    let casper_node_json_block: serde_json::Value =
         serde_json::from_str(include_str!("mainnet/blocks/block-0.json")).unwrap();
-    let casper_node_block_header =
-        casper_node::types::BlockHeader::from(casper_node_json_block.header.clone());
+
+    let casper_node_block: casper_types::BlockV1 =
+        serde_json::from_value(casper_node_json_block.clone()).unwrap();
+
+    let casper_node_block_header = casper_node_block.header();
     assert_eq!(
         casper_node_block_header.block_hash().as_ref(),
-        casper_node_json_block.hash.as_ref(),
+        casper_node_block.hash().as_ref(),
         "Casper node block hash mismatch"
     );
     let block_header_bytes = casper_node_block_header.to_bytes().unwrap();
-    let deserialized_block_header: BlockHeader =
+    let deserialized_block_header: BlockHeaderV1 =
         deserialize_from_slice(&block_header_bytes).unwrap();
     assert_eq!(
         deserialized_block_header.block_hash().as_ref(),
-        casper_node_json_block.hash.as_ref(),
+        casper_node_block.hash().as_ref(),
         "JSON block hash mismatch"
     );
     let json_block: JsonBlock =
         serde_json::from_str(include_str!("mainnet/blocks/block-0.json")).unwrap();
-    let converted_block_header = BlockHeader::from(json_block.header().clone());
+    let converted_block_header = BlockHeaderV1::from(json_block.header().clone());
     assert_eq!(
         deserialized_block_header, converted_block_header,
         "Block header mismatch"
@@ -85,25 +88,28 @@ fn parse_and_validate_hash_of_block() {
 
 #[test]
 fn parse_and_validate_hash_of_block_body() {
-    let casper_node_json_block: casper_node::types::JsonBlock =
+    let casper_node_json_block: serde_json::Value =
         serde_json::from_str(include_str!("mainnet/blocks/block-0.json")).unwrap();
-    let casper_node_block_body =
-        casper_node::types::BlockBody::from(casper_node_json_block.body.clone());
+    let casper_node_block_body: casper_types::BlockBodyV1 =
+        serde_json::from_value(casper_node_json_block["body"].clone()).unwrap();
+    let body_hash: casper_types::Digest =
+        serde_json::from_value(casper_node_json_block["header"]["body_hash"].clone()).unwrap();
+
     assert_eq!(
         casper_node_block_body.hash().as_ref(),
-        casper_node_json_block.header.body_hash.as_ref(),
+        body_hash.as_ref(),
         "Casper node block body hash mismatch"
     );
     let block_body_bytes = casper_node_block_body.to_bytes().unwrap();
-    let deserialized_block_body: BlockBody = deserialize_from_slice(&block_body_bytes).unwrap();
+    let deserialized_block_body: BlockBodyV1 = deserialize_from_slice(&block_body_bytes).unwrap();
     assert_eq!(
         deserialized_block_body.hash().as_ref(),
-        casper_node_json_block.header.body_hash.as_ref(),
+        body_hash.as_ref(),
         "JSON block body hash mismatch"
     );
     let json_block: JsonBlock =
         serde_json::from_str(include_str!("mainnet/blocks/block-0.json")).unwrap();
-    let converted_block_body = BlockBody::from(json_block.body().clone());
+    let converted_block_body = json_block.body().clone();
     assert_eq!(
         deserialized_block_body, converted_block_body,
         "Block body mismatch"
@@ -146,7 +152,7 @@ fn query_proofs() {
     if let casper_types::StoredValue::Account(account) = query_info.stored_value() {
         assert_eq!(
             "account-hash-c39d7a6202e5558ffbf327985c55a95f606db48115599a216987b73daf409076",
-            serde_json::to_value(&account.account_hash())
+            serde_json::to_value(account.account_hash())
                 .expect("should convert to serde_json::Value")
                 .as_str()
                 .expect("should be a string"),

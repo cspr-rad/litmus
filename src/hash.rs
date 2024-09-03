@@ -8,7 +8,8 @@ const CHUNK_SIZE_BYTES: usize = 8 * 1024 * 1024;
 const CHUNK_DATA_ZEROED: [u8; CHUNK_SIZE_BYTES] = [0u8; CHUNK_SIZE_BYTES];
 
 #[derive(Clone, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
-// See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/hashing/src/lib.rs#L48
+// For 1.* See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/hashing/src/lib.rs#L48
+// For casper 2.0 rc4 see https://github.com/casper-network/casper-node/blob/4e2ddf485e5cec830f9ff402b052f5f55801eb54/types/src/digest.rs#L54
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Digest([u8; DIGEST_LENGTH]);
 
@@ -130,14 +131,12 @@ impl serde::Serialize for Digest {
 
 impl<'de> serde::Deserialize<'de> for Digest {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let bytes: Vec<u8>;
-
-        if deserializer.is_human_readable() {
+        let bytes: Vec<u8> = if deserializer.is_human_readable() {
             let hex_string = String::deserialize(deserializer)?;
-            bytes = base16::decode(hex_string.as_bytes()).map_err(serde::de::Error::custom)?;
+            base16::decode(hex_string.as_bytes()).map_err(serde::de::Error::custom)?
         } else {
-            bytes = <Vec<u8>>::deserialize(deserializer)?;
-        }
+            <Vec<u8>>::deserialize(deserializer)?
+        };
 
         let data =
             <[u8; DIGEST_LENGTH]>::try_from(bytes.as_ref()).map_err(serde::de::Error::custom)?;
@@ -158,7 +157,7 @@ mod test {
     #[proptest]
     fn serde_json_digest_round_trip(timestamp: Digest) {
         let serialized_digest = serde_json::to_string(&timestamp).unwrap();
-        let casper_hashing_digest: casper_hashing::Digest =
+        let casper_hashing_digest: casper_types::Digest =
             serde_json::from_str(&serialized_digest).unwrap();
         let serialized_casper_hashing_digest =
             serde_json::to_string(&casper_hashing_digest).unwrap();
@@ -171,7 +170,7 @@ mod test {
     #[proptest]
     fn bincode_timestamp_round_trip(timestamp: Digest) {
         let serialized_timestamp = bincode::serialize(&timestamp).unwrap();
-        let casper_types_timestamp: casper_hashing::Digest =
+        let casper_types_timestamp: casper_types::Digest =
             bincode::deserialize(&serialized_timestamp).unwrap();
         let serialized_casper_types_timestamp =
             bincode::serialize(&casper_types_timestamp).unwrap();
@@ -184,7 +183,7 @@ mod test {
     #[proptest]
     fn bytesrepr_digest_round_trip(digest: Digest) {
         let serialized_digest = digest.to_bytes().unwrap();
-        let casper_hashing_digest: casper_hashing::Digest =
+        let casper_hashing_digest: casper_types::Digest =
             deserialize_from_slice(&serialized_digest).unwrap();
         let serialized_casper_hashing_digest = casper_hashing_digest.to_bytes().unwrap();
         let deserialized_digest: Digest =
@@ -195,7 +194,7 @@ mod test {
     #[proptest]
     fn hashing_agrees_with_casper_hashing(data: Vec<u8>) {
         let digest = Digest::hash(&data);
-        let casper_digest = casper_hashing::Digest::hash(&data);
+        let casper_digest = casper_types::Digest::hash(&data);
         assert_eq!(
             <[u8; DIGEST_LENGTH]>::from(digest),
             <[u8; DIGEST_LENGTH]>::from(casper_digest)

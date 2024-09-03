@@ -39,7 +39,6 @@ impl EraInfo {
     pub fn new(era_id: EraId, validator_weights: BTreeMap<PublicKey, U512>) -> Self {
         let total_weight = validator_weights
             .values()
-            .into_iter()
             .fold(U512::from(0), |acc, x| acc + x);
         Self {
             era_id,
@@ -52,6 +51,7 @@ impl EraInfo {
         self.era_id
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn validate(
         &self,
         block_header_with_signatures: &BlockHeaderWithSignatures,
@@ -88,7 +88,7 @@ impl EraInfo {
         }
         Err(BlockSignaturesValidationError::InsufficientWeight {
             bad_signature_weight: block_signature_weight,
-            total_weight: self.total_weight.clone(),
+            total_weight: self.total_weight,
         })
     }
 }
@@ -140,6 +140,7 @@ impl LightClientKernel {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn update(
         &mut self,
         block_header_with_signatures: &BlockHeaderWithSignatures,

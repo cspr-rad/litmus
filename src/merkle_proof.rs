@@ -93,6 +93,12 @@ pub type PointerBlockArray = [PointerBlockValue; RADIX];
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct PointerBlock(PointerBlockArray);
 
+impl Default for PointerBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PointerBlock {
     pub fn new() -> Self {
         PointerBlock([
@@ -460,7 +466,7 @@ impl Arbitrary for TrieMerkleProof {
             proptest::collection::vec(<TrieMerkleProofStep>::arbitrary(), 1..=6),
         )
             .prop_map(|(key, value, proof_steps)| {
-                TrieMerkleProof::new(key, value, proof_steps.into())
+                TrieMerkleProof::new(key, value, proof_steps)
             })
             .boxed()
     }
@@ -535,11 +541,11 @@ impl<'a, 'b> QueryInfo<'a, 'b> {
     }
 
     pub fn key(&self) -> &'a Key {
-        &self.key
+        self.key
     }
 
     pub fn stored_value(&self) -> &'b StoredValue {
-        &self.stored_value
+        self.stored_value
     }
 }
 
@@ -594,7 +600,7 @@ pub fn process_query_proofs<'a>(
 mod test {
     extern crate std;
 
-    use casper_execution_engine::storage::trie::merkle_proof::TrieMerkleProof as CasperTrieMerkleProof;
+    use casper_types::global_state::TrieMerkleProof as CasperTrieMerkleProof;
     use casper_types::{bytesrepr::ToBytes, Key, StoredValue};
     use test_strategy::proptest;
 
@@ -626,10 +632,14 @@ mod test {
             casper_types::bytesrepr::deserialize(serialized_trie_merkle_proof.clone()).unwrap();
         let trie_merkle_root_bytes: [u8; DIGEST_LENGTH] =
             trie_merkle_proof.compute_state_hash().unwrap().into();
-        let casper_trie_merkle_root_bytes: [u8; DIGEST_LENGTH] = casper_trie_merkle_proof
-            .compute_state_hash()
+
+        let casper_trie_merkle_root_bytes: [u8; DIGEST_LENGTH] =
+            casper_storage::global_state::trie_store::operations::compute_state_hash(
+                &casper_trie_merkle_proof,
+            )
             .unwrap()
             .into();
+
         assert_eq!(trie_merkle_root_bytes, casper_trie_merkle_root_bytes);
     }
 }

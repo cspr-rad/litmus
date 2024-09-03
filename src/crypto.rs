@@ -76,9 +76,8 @@ mod test {
 
         fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
             prop_oneof![
-                any::<[u8; CasperPublicKey::ED25519_LENGTH]>().prop_map(|bytes| {
-                    RealSecretKey::Ed25519(Ed25519SecretKey::try_from(bytes).unwrap())
-                }),
+                any::<[u8; CasperPublicKey::ED25519_LENGTH]>()
+                    .prop_map(|bytes| { RealSecretKey::Ed25519(Ed25519SecretKey::from(bytes)) }),
                 any::<[u8; CasperSecretKey::SECP256K1_LENGTH]>()
                     .prop_filter("Cannot make a secret key from [0u8; 32]", |bytes| bytes
                         != &[0u8; CasperSecretKey::SECP256K1_LENGTH])
@@ -107,15 +106,13 @@ mod test {
     fn sign_and_verify(real_secret_key: RealSecretKey, message: Vec<u8>) {
         let casper_secret_key = CasperSecretKey::from(real_secret_key);
         let signature = sign(&casper_secret_key, &message);
-        assert_eq!(
-            verify(
-                &CasperPublicKey::from(&casper_secret_key),
-                &message,
-                &signature
-            )
-            .unwrap(),
-            ()
+
+        verify(
+            &CasperPublicKey::from(&casper_secret_key),
+            &message,
+            &signature,
         )
+        .unwrap();
     }
 
     #[proptest]
@@ -136,16 +133,13 @@ mod test {
             CasperSecretKey::ed25519_from_bytes([0u8; CasperSecretKey::ED25519_LENGTH]).unwrap();
         let message = "this shouldn't work for the good public key";
         let bad_signature = sign(&bad_secret_key, message);
-        assert_eq!(
-            verify(
-                &CasperPublicKey::from(&bad_secret_key),
-                message,
-                &bad_signature
-            )
-            .unwrap(),
-            (),
-            "Bad secret key should be able to verify its own signature"
-        );
+        verify(
+            &CasperPublicKey::from(&bad_secret_key),
+            message,
+            &bad_signature,
+        )
+        .unwrap_or_else(|_| panic!("Bad secret key should be able to verify its own signature"));
+
         let good_public_key = CasperPublicKey::from(
             &CasperSecretKey::ed25519_from_bytes([1u8; CasperSecretKey::ED25519_LENGTH]).unwrap(),
         );
@@ -163,16 +157,14 @@ mod test {
                 .unwrap();
         let message = "this shouldn't work for the good public key";
         let bad_signature = sign(&bad_secret_key, message);
-        assert_eq!(
-            verify(
-                &CasperPublicKey::from(&bad_secret_key),
-                message,
-                &bad_signature
-            )
-            .unwrap(),
-            (),
-            "Bad secret key should be able to verify its own signature"
-        );
+
+        verify(
+            &CasperPublicKey::from(&bad_secret_key),
+            message,
+            &bad_signature,
+        )
+        .unwrap_or_else(|_| panic!("Bad secret key should be able to verify its own signature"));
+
         let good_public_key = CasperPublicKey::from(
             &CasperSecretKey::secp256k1_from_bytes([2u8; CasperSecretKey::SECP256K1_LENGTH])
                 .unwrap(),
@@ -197,12 +189,12 @@ mod test {
     fn should_not_verify_different_signature_schemes() {
         let message = "should not work because the signatures are different types";
         let secret_bytes = [1u8; 32];
-        let ed25519_secret_key = CasperSecretKey::ed25519_from_bytes(&secret_bytes).unwrap();
+        let ed25519_secret_key = CasperSecretKey::ed25519_from_bytes(secret_bytes).unwrap();
         let secp256k1_public_key =
-            CasperPublicKey::from(&CasperSecretKey::secp256k1_from_bytes(&secret_bytes).unwrap());
-        let ed25519_signature = sign(&ed25519_secret_key, &message);
+            CasperPublicKey::from(&CasperSecretKey::secp256k1_from_bytes(secret_bytes).unwrap());
+        let ed25519_signature = sign(&ed25519_secret_key, message);
         assert!(
-            verify(&secp256k1_public_key, &message, &ed25519_signature).is_err(),
+            verify(&secp256k1_public_key, message, &ed25519_signature).is_err(),
             "should not verify different types of public keys and signatures"
         )
     }

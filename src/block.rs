@@ -6,18 +6,17 @@ use casper_types::{crypto::gens::public_key_arb, SecretKey};
 use proptest::prelude::*;
 
 use casper_types::{
-    bytesrepr::{FromBytes, ToBytes},
-    EraId, PublicKey, Signature,
+    bytesrepr::{self, FromBytes, ToBytes},
+    EraId, PublicKey, RewardedSignatures, Signature, TransactionHash,
 };
 
 use super::{
-    block_header::{BlockHash, BlockHeader},
+    block_header::{BlockHash, BlockHeaderV1},
     crypto::{verify, SignatureVerificationError},
     hash::Digest,
 };
 
-#[derive(Clone, Debug, PartialOrd, Ord, Eq, PartialEq)]
-#[cfg_attr(test, derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialOrd, Ord, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1324-L1332
 pub struct BlockSignatures {
     block_hash: BlockHash,
@@ -102,7 +101,7 @@ impl Arbitrary for BlockSignatures {
 #[derive(Debug, Clone, PartialEq, Eq)]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1184-L1188
 pub struct BlockHeaderWithSignatures {
-    block_header: BlockHeader,
+    block_header: BlockHeaderV1,
     block_signatures: BlockSignatures,
 }
 
@@ -120,12 +119,12 @@ pub enum BlockHeaderWithSignaturesConstructionError {
 
 impl BlockHeaderWithSignatures {
     pub fn new(
-        block_header: BlockHeader,
+        block_header: BlockHeaderV1,
         block_signatures: BlockSignatures,
     ) -> Result<Self, BlockHeaderWithSignaturesConstructionError> {
         if block_header.era_id() != block_signatures.era_id() {
             return Err(BlockHeaderWithSignaturesConstructionError::InvalidEraId {
-                header_era_id: block_header.era_id().clone(),
+                header_era_id: block_header.era_id(),
                 signatures_era_id: block_signatures.era_id(),
             });
         }
@@ -144,7 +143,7 @@ impl BlockHeaderWithSignatures {
         })
     }
 
-    pub fn block_header(&self) -> &BlockHeader {
+    pub fn block_header(&self) -> &BlockHeaderV1 {
         &self.block_header
     }
 
@@ -159,10 +158,10 @@ impl Arbitrary for BlockHeaderWithSignatures {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        (any::<BlockHeader>(), any::<BlockSignatures>())
+        (any::<BlockHeaderV1>(), any::<BlockSignatures>())
             .prop_map(|(block_header, mut block_signatures)| {
                 block_signatures.block_hash = block_header.block_hash();
-                block_signatures.era_id = block_header.era_id().clone();
+                block_signatures.era_id = block_header.era_id();
                 BlockHeaderWithSignatures {
                     block_header,
                     block_signatures,
@@ -177,15 +176,15 @@ impl Arbitrary for BlockHeaderWithSignatures {
 )]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/deploy/deploy_hash.rs#L32
-pub struct DeployHash(Digest);
+pub struct DeployHash(pub(crate) Digest);
 
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/deploy/deploy_hash.rs#L89-L101
 impl ToBytes for DeployHash {
-    fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), casper_types::bytesrepr::Error> {
+    fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), bytesrepr::Error> {
         self.0.write_bytes(writer)
     }
 
-    fn to_bytes(&self) -> Result<Vec<u8>, casper_types::bytesrepr::Error> {
+    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
         self.0.to_bytes()
     }
 
@@ -196,26 +195,120 @@ impl ToBytes for DeployHash {
 
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/deploy/deploy_hash.rs#L103-L107
 impl FromBytes for DeployHash {
-    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), casper_types::bytesrepr::Error> {
+    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
         Digest::from_bytes(bytes).map(|(inner, remainder)| (DeployHash(inner), remainder))
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[allow(clippy::large_enum_variant)]
+pub enum BlockBody {
+    /// The legacy, initial version of the body portion of a block.
+    #[serde(rename = "Version1")]
+    V1(BlockBodyV1),
+    /// The version 2 of the body portion of a block, which includes the
+    /// `past_finality_signatures`.
+    #[serde(rename = "Version2")]
+    V2(BlockBodyV2),
+}
+
+/// Tag for block body v1.
+pub const BLOCK_BODY_V1_TAG: u8 = 0;
+/// Tag for block body v2.
+pub const BLOCK_BODY_V2_TAG: u8 = 1;
+
+impl BlockBody {
+    pub fn hash(&self) -> Digest {
+        match self {
+            BlockBody::V1(v1) => v1.hash(),
+            BlockBody::V2(v2) => v2.hash(),
+        }
+    }
+}
+
+impl From<BlockBodyV1> for BlockBody {
+    fn from(block_body: BlockBodyV1) -> Self {
+        BlockBody::V1(block_body)
+    }
+}
+
+impl From<BlockBodyV2> for BlockBody {
+    fn from(block_body: BlockBodyV2) -> Self {
+        BlockBody::V2(block_body)
+    }
+}
+
+impl ToBytes for BlockBody {
+    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
+        let mut buffer = bytesrepr::allocate_buffer(self)?;
+        match self {
+            BlockBody::V1(v1) => {
+                buffer.insert(0, BLOCK_BODY_V1_TAG);
+                buffer.extend(v1.to_bytes()?);
+            }
+            BlockBody::V2(v2) => {
+                buffer.insert(0, BLOCK_BODY_V2_TAG);
+                buffer.extend(v2.to_bytes()?);
+            }
+        }
+        Ok(buffer)
+    }
+
+    fn serialized_length(&self) -> usize {
+        1 + match self {
+            BlockBody::V1(v1) => v1.serialized_length(),
+            BlockBody::V2(v2) => v2.serialized_length(),
+        }
+    }
+}
+
+impl FromBytes for BlockBody {
+    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
+        let (tag, remainder) = u8::from_bytes(bytes)?;
+        match tag {
+            BLOCK_BODY_V1_TAG => {
+                let (body, remainder): (BlockBodyV1, _) = FromBytes::from_bytes(remainder)?;
+                Ok((Self::V1(body), remainder))
+            }
+            BLOCK_BODY_V2_TAG => {
+                let (body, remainder): (BlockBodyV2, _) = FromBytes::from_bytes(remainder)?;
+                Ok((Self::V2(body), remainder))
+            }
+            _ => Err(bytesrepr::Error::Formatting),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Arbitrary for BlockBody {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            any::<BlockBodyV1>().prop_map(BlockBody::V1),
+            any::<BlockBodyV2>().prop_map(BlockBody::V2),
+        ]
+        .boxed()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1204C14-L1204C15
-pub struct BlockBody {
+// See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1204C14-L1204C15
+pub struct BlockBodyV1 {
     proposer: PublicKey,
     deploy_hashes: Vec<DeployHash>,
     transfer_hashes: Vec<DeployHash>,
 }
 
-impl BlockBody {
+impl BlockBodyV1 {
     pub fn new(
         proposer: PublicKey,
         deploy_hashes: Vec<DeployHash>,
         transfer_hashes: Vec<DeployHash>,
     ) -> Self {
-        BlockBody {
+        BlockBodyV1 {
             proposer,
             deploy_hashes,
             transfer_hashes,
@@ -240,7 +333,7 @@ impl BlockBody {
 }
 
 #[cfg(test)]
-impl Arbitrary for BlockBody {
+impl Arbitrary for BlockBodyV1 {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
@@ -250,7 +343,7 @@ impl Arbitrary for BlockBody {
             prop::collection::vec(any::<DeployHash>(), 0..5),
             prop::collection::vec(any::<DeployHash>(), 0..5),
         )
-            .prop_map(|(proposer, deploy_hashes, transfer_hashes)| BlockBody {
+            .prop_map(|(proposer, deploy_hashes, transfer_hashes)| BlockBodyV1 {
                 proposer,
                 deploy_hashes,
                 transfer_hashes,
@@ -260,9 +353,9 @@ impl Arbitrary for BlockBody {
 }
 
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1292-L1306
-impl ToBytes for BlockBody {
-    fn to_bytes(&self) -> Result<Vec<u8>, casper_types::bytesrepr::Error> {
-        let mut buffer = casper_types::bytesrepr::allocate_buffer(self)?;
+impl ToBytes for BlockBodyV1 {
+    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
+        let mut buffer = bytesrepr::allocate_buffer(self)?;
         buffer.extend(self.proposer.to_bytes()?);
         buffer.extend(self.deploy_hashes.to_bytes()?);
         buffer.extend(self.transfer_hashes.to_bytes()?);
@@ -277,12 +370,12 @@ impl ToBytes for BlockBody {
 }
 
 // See: https://github.com/casper-network/casper-node/blob/edc4b45ea05526ba6dd7971da09e27754a37a230/node/src/types/block.rs#L1308-L1321
-impl FromBytes for BlockBody {
-    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), casper_types::bytesrepr::Error> {
+impl FromBytes for BlockBodyV1 {
+    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
         let (proposer, bytes) = PublicKey::from_bytes(bytes)?;
         let (deploy_hashes, bytes) = Vec::<DeployHash>::from_bytes(bytes)?;
         let (transfer_hashes, bytes) = Vec::<DeployHash>::from_bytes(bytes)?;
-        let body = BlockBody {
+        let body = BlockBodyV1 {
             proposer,
             deploy_hashes,
             transfer_hashes,
@@ -291,12 +384,141 @@ impl FromBytes for BlockBody {
     }
 }
 
+/// The body portion of a block. Version 2.
+#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct BlockBodyV2 {
+    /// Map of transactions mapping categories to a list of transaction hashes.
+    transactions: BTreeMap<u8, Vec<TransactionHash>>,
+    /// List of identifiers for finality signatures for a particular past block.
+    rewarded_signatures: RewardedSignatures,
+}
+
+impl BlockBodyV2 {
+    pub fn new(
+        transactions: BTreeMap<u8, Vec<TransactionHash>>,
+        rewarded_signatures: RewardedSignatures,
+    ) -> Self {
+        BlockBodyV2 {
+            transactions,
+            rewarded_signatures,
+        }
+    }
+
+    pub fn transactions(&self) -> &BTreeMap<u8, Vec<TransactionHash>> {
+        &self.transactions
+    }
+
+    pub fn rewarded_signatures(&self) -> &RewardedSignatures {
+        &self.rewarded_signatures
+    }
+
+    pub fn hash(&self) -> Digest {
+        Digest::hash(&self.to_bytes().unwrap())
+    }
+}
+
+impl ToBytes for BlockBodyV2 {
+    fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), bytesrepr::Error> {
+        self.transactions.write_bytes(writer)?;
+        self.rewarded_signatures.write_bytes(writer)?;
+        Ok(())
+    }
+
+    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
+        let mut buffer = bytesrepr::allocate_buffer(self)?;
+        self.write_bytes(&mut buffer)?;
+        Ok(buffer)
+    }
+
+    fn serialized_length(&self) -> usize {
+        self.transactions.serialized_length() + self.rewarded_signatures.serialized_length()
+    }
+}
+
+impl FromBytes for BlockBodyV2 {
+    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
+        let (transactions, bytes) = FromBytes::from_bytes(bytes)?;
+        let (rewarded_signatures, bytes) = RewardedSignatures::from_bytes(bytes)?;
+        let body = BlockBodyV2 {
+            transactions,
+            rewarded_signatures,
+        };
+        Ok((body, bytes))
+    }
+}
+
+#[cfg(test)]
+impl Arbitrary for BlockBodyV2 {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        fn transaction_category_arb() -> impl Strategy<Value = u8> {
+            use casper_types::TransactionCategory;
+
+            prop_oneof![
+                Just(TransactionCategory::Mint as u8),
+                Just(TransactionCategory::Auction as u8),
+                Just(TransactionCategory::InstallUpgrade as u8),
+                Just(TransactionCategory::Large as u8),
+                Just(TransactionCategory::Medium as u8),
+                Just(TransactionCategory::Small as u8),
+            ]
+        }
+
+        (
+            prop::collection::btree_map(
+                transaction_category_arb(),
+                prop::collection::vec(
+                    prop_oneof!(
+                        any::<DeployHash>()
+                            .prop_map(|hash| TransactionHash::from_raw(hash.0.into())),
+                        any::<[u8; crate::hash::DIGEST_LENGTH]>()
+                            .prop_map(TransactionHash::from_raw),
+                    ),
+                    0..5,
+                ),
+                0..5,
+            ),
+            // validator set
+            prop::collection::btree_set(public_key_arb(), 0..10),
+            // indices of validators who signed
+            prop::collection::vec(any::<prop::sample::Index>(), 0..10),
+        )
+            .prop_map(|(transactions, validator_set, signer_indices)| {
+                let validator_set: Vec<_> = validator_set.into_iter().collect();
+
+                // prop::Index.get panics if the collection is empty
+                use alloc::collections::BTreeSet;
+                let signing_validators: BTreeSet<_> = if validator_set.is_empty() {
+                    BTreeSet::new()
+                } else {
+                    signer_indices
+                        .into_iter()
+                        .map(|index| index.get(&validator_set))
+                        .cloned()
+                        .collect()
+                };
+
+                let rewarded_signatures = RewardedSignatures::new([
+                    casper_types::SingleBlockRewardedSignatures::from_validator_set(
+                        &signing_validators,
+                        &validator_set,
+                    ),
+                ]);
+
+                BlockBodyV2::new(transactions, rewarded_signatures)
+            })
+            .boxed()
+    }
+}
+
 // Data structure reflecting the JSON representation of a block's body.
 // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L2268-L2277
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Block {
     block_header_with_signatures: BlockHeaderWithSignatures,
-    body: BlockBody,
+    body: BlockBodyV1,
 }
 
 #[derive(Debug)]
@@ -310,7 +532,7 @@ pub enum BlockConstructionError {
 impl Block {
     pub fn new(
         block_header_with_signatures: BlockHeaderWithSignatures,
-        body: BlockBody,
+        body: BlockBodyV1,
     ) -> Result<Self, BlockConstructionError> {
         let header_block_hash = block_header_with_signatures.block_header().body_hash();
         let body_hash = body.hash();
@@ -330,7 +552,7 @@ impl Block {
         &self.block_header_with_signatures
     }
 
-    pub fn body(&self) -> &BlockBody {
+    pub fn body(&self) -> &BlockBodyV1 {
         &self.body
     }
 }
@@ -341,7 +563,7 @@ impl Arbitrary for Block {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        (any::<BlockHeaderWithSignatures>(), any::<BlockBody>())
+        (any::<BlockHeaderWithSignatures>(), any::<BlockBodyV1>())
             .prop_map(|(header, body)| Block {
                 block_header_with_signatures: header,
                 body,
@@ -361,12 +583,12 @@ mod test {
 
     use crate::{block_header::BlockHash, crypto::sign, hash::DIGEST_LENGTH};
 
-    use super::{BlockBody, BlockSignatures, DeployHash};
+    use super::{BlockBody, BlockBodyV1, BlockBodyV2, BlockSignatures, DeployHash};
 
     #[proptest]
     fn serde_json_block_signatures_round_trip(block_signatures: BlockSignatures) {
         let serialized_block_signatures = serde_json::to_string(&block_signatures).unwrap();
-        let casper_types_block_signatures: casper_node::types::BlockSignatures =
+        let casper_types_block_signatures: casper_types::BlockSignaturesV1 =
             serde_json::from_str(&serialized_block_signatures).unwrap();
         let serialized_casper_types_block_signatures =
             serde_json::to_string(&casper_types_block_signatures).unwrap();
@@ -382,7 +604,7 @@ mod test {
     #[proptest]
     fn bincode_block_signatures_round_trip(block_signatures: BlockSignatures) {
         let serialized_block_signatures = bincode::serialize(&block_signatures).unwrap();
-        let casper_types_block_signatures: casper_node::types::BlockSignatures =
+        let casper_types_block_signatures: casper_types::BlockSignaturesV1 =
             bincode::deserialize(&serialized_block_signatures).unwrap();
         let serialized_casper_types_block_signatures =
             bincode::serialize(&casper_types_block_signatures).unwrap();
@@ -437,7 +659,7 @@ mod test {
     #[proptest]
     fn serde_json_deploy_hash_round_trip_casper_node(deploy_hash: DeployHash) {
         let serialized_deploy_hash = serde_json::to_string(&deploy_hash).unwrap();
-        let casper_node_deploy_hash: casper_node::types::DeployHash =
+        let casper_node_deploy_hash: casper_types::DeployHash =
             serde_json::from_str(&serialized_deploy_hash).unwrap();
         let serialized_casper_node_deploy_hash =
             serde_json::to_string(&casper_node_deploy_hash).unwrap();
@@ -453,7 +675,7 @@ mod test {
     #[proptest]
     fn bincode_deploy_hash_round_trip_casper_node(deploy_hash: DeployHash) {
         let serialized_deploy_hash = bincode::serialize(&deploy_hash).unwrap();
-        let casper_node_deploy_hash: casper_node::types::DeployHash =
+        let casper_node_deploy_hash: casper_types::DeployHash =
             bincode::deserialize(&serialized_deploy_hash).unwrap();
         let serialized_casper_node_deploy_hash =
             bincode::serialize(&casper_node_deploy_hash).unwrap();
@@ -469,7 +691,7 @@ mod test {
         let casper_types_deploy_hash: casper_types::DeployHash =
             casper_types::bytesrepr::deserialize(serialized_deploy_hash.clone()).unwrap();
         let serialized_casper_types_deploy_hash =
-            casper_types::bytesrepr::serialize(&casper_types_deploy_hash).unwrap();
+            casper_types::bytesrepr::serialize(casper_types_deploy_hash).unwrap();
         assert_eq!(serialized_deploy_hash, serialized_casper_types_deploy_hash);
         let deserialized_deploy_hash: DeployHash =
             casper_types::bytesrepr::deserialize(serialized_casper_types_deploy_hash.clone())
@@ -480,10 +702,10 @@ mod test {
     #[proptest]
     fn bytesrepr_deploy_hash_round_trip_casper_node(deploy_hash: DeployHash) {
         let serialized_deploy_hash = deploy_hash.to_bytes().unwrap();
-        let casper_node_deploy_hash: casper_node::types::DeployHash =
+        let casper_node_deploy_hash: casper_types::DeployHash =
             casper_types::bytesrepr::deserialize(serialized_deploy_hash.clone()).unwrap();
         let serialized_casper_node_deploy_hash =
-            casper_types::bytesrepr::serialize(&casper_node_deploy_hash).unwrap();
+            casper_types::bytesrepr::serialize(casper_node_deploy_hash).unwrap();
         assert_eq!(serialized_deploy_hash, serialized_casper_node_deploy_hash);
         let deserialized_deploy_hash: DeployHash =
             casper_types::bytesrepr::deserialize(serialized_casper_node_deploy_hash.clone())
@@ -492,9 +714,33 @@ mod test {
     }
 
     #[proptest]
+    fn serde_json_block_body_v1_round_trip(block_body: BlockBodyV1) {
+        let serialized_block_body = serde_json::to_string(&block_body).unwrap();
+        let casper_node_block_body: casper_types::BlockBodyV1 =
+            serde_json::from_str(&serialized_block_body).unwrap();
+        let serialized_node_block_body = serde_json::to_string(&casper_node_block_body).unwrap();
+        assert_eq!(serialized_block_body, serialized_node_block_body);
+        let deserialized_block_body: BlockBodyV1 =
+            serde_json::from_str(&serialized_node_block_body).unwrap();
+        assert_eq!(block_body, deserialized_block_body);
+    }
+
+    #[proptest]
+    fn serde_json_block_body_v2_round_trip(block_body: BlockBodyV2) {
+        let serialized_block_body = serde_json::to_string(&block_body).unwrap();
+        let casper_node_block_body: casper_types::BlockBodyV2 =
+            serde_json::from_str(&serialized_block_body).unwrap();
+        let serialized_node_block_body = serde_json::to_string(&casper_node_block_body).unwrap();
+        assert_eq!(serialized_block_body, serialized_node_block_body);
+        let deserialized_block_body: BlockBodyV2 =
+            serde_json::from_str(&serialized_node_block_body).unwrap();
+        assert_eq!(block_body, deserialized_block_body);
+    }
+
+    #[proptest]
     fn serde_json_block_body_round_trip(block_body: BlockBody) {
         let serialized_block_body = serde_json::to_string(&block_body).unwrap();
-        let casper_node_block_body: casper_node::types::BlockBody =
+        let casper_node_block_body: casper_types::BlockBody =
             serde_json::from_str(&serialized_block_body).unwrap();
         let serialized_node_block_body = serde_json::to_string(&casper_node_block_body).unwrap();
         assert_eq!(serialized_block_body, serialized_node_block_body);
@@ -504,9 +750,35 @@ mod test {
     }
 
     #[proptest]
+    fn bincode_block_body_v1_round_trip(block_body: BlockBodyV1) {
+        let serialized_block_body = bincode::serialize(&block_body).unwrap();
+        let casper_node_block_body: casper_types::BlockBodyV1 =
+            bincode::deserialize(&serialized_block_body).unwrap();
+        let serialized_casper_node_block_body =
+            bincode::serialize(&casper_node_block_body).unwrap();
+        assert_eq!(serialized_block_body, serialized_casper_node_block_body);
+        let deserialized_block_body: BlockBodyV1 =
+            bincode::deserialize(&serialized_casper_node_block_body).unwrap();
+        assert_eq!(block_body, deserialized_block_body);
+    }
+
+    #[proptest]
+    fn bincode_block_body_v2_round_trip(block_body: BlockBodyV2) {
+        let serialized_block_body = bincode::serialize(&block_body).unwrap();
+        let casper_node_block_body: casper_types::BlockBodyV2 =
+            bincode::deserialize(&serialized_block_body).unwrap();
+        let serialized_casper_node_block_body =
+            bincode::serialize(&casper_node_block_body).unwrap();
+        assert_eq!(serialized_block_body, serialized_casper_node_block_body);
+        let deserialized_block_body: BlockBodyV2 =
+            bincode::deserialize(&serialized_casper_node_block_body).unwrap();
+        assert_eq!(block_body, deserialized_block_body);
+    }
+
+    #[proptest]
     fn bincode_block_body_round_trip(block_body: BlockBody) {
         let serialized_block_body = bincode::serialize(&block_body).unwrap();
-        let casper_node_block_body: casper_node::types::BlockBody =
+        let casper_node_block_body: casper_types::BlockBody =
             bincode::deserialize(&serialized_block_body).unwrap();
         let serialized_casper_node_block_body =
             bincode::serialize(&casper_node_block_body).unwrap();
@@ -517,9 +789,37 @@ mod test {
     }
 
     #[proptest]
+    fn bytesrepr_block_body_v1_round_trip(block_body: BlockBodyV1) {
+        let serialized_block_body = block_body.to_bytes().unwrap();
+        let casper_node_block_body: casper_types::BlockBodyV1 =
+            casper_types::bytesrepr::deserialize(serialized_block_body.clone()).unwrap();
+        let serialized_casper_node_block_body =
+            casper_types::bytesrepr::serialize(&casper_node_block_body).unwrap();
+        assert_eq!(serialized_block_body, serialized_casper_node_block_body);
+        let deserialized_block_body: BlockBodyV1 =
+            casper_types::bytesrepr::deserialize(serialized_casper_node_block_body.clone())
+                .unwrap();
+        assert_eq!(block_body, deserialized_block_body);
+    }
+
+    #[proptest]
+    fn bytesrepr_block_body_v2_round_trip(block_body: BlockBodyV2) {
+        let serialized_block_body = block_body.to_bytes().unwrap();
+        let casper_node_block_body: casper_types::BlockBodyV2 =
+            casper_types::bytesrepr::deserialize(serialized_block_body.clone()).unwrap();
+        let serialized_casper_node_block_body =
+            casper_types::bytesrepr::serialize(&casper_node_block_body).unwrap();
+        assert_eq!(serialized_block_body, serialized_casper_node_block_body);
+        let deserialized_block_body: BlockBodyV2 =
+            casper_types::bytesrepr::deserialize(serialized_casper_node_block_body.clone())
+                .unwrap();
+        assert_eq!(block_body, deserialized_block_body);
+    }
+
+    #[proptest]
     fn bytesrepr_block_body_round_trip(block_body: BlockBody) {
         let serialized_block_body = block_body.to_bytes().unwrap();
-        let casper_node_block_body: casper_node::types::BlockBody =
+        let casper_node_block_body: casper_types::BlockBody =
             casper_types::bytesrepr::deserialize(serialized_block_body.clone()).unwrap();
         let serialized_casper_node_block_body =
             casper_types::bytesrepr::serialize(&casper_node_block_body).unwrap();
@@ -534,9 +834,12 @@ mod test {
     fn block_body_hash_agree(block_body: BlockBody) {
         let block_body_hash = block_body.hash();
         let serialized_block_body = block_body.to_bytes().unwrap();
-        let casper_node_block_body: casper_node::types::BlockBody =
+        let casper_node_block_body: casper_types::BlockBody =
             casper_types::bytesrepr::deserialize(serialized_block_body).unwrap();
-        let casper_node_block_body_hash = casper_node_block_body.hash();
+        let casper_node_block_body_hash = match casper_node_block_body {
+            casper_types::BlockBody::V1(v1) => v1.hash(),
+            casper_types::BlockBody::V2(v2) => v2.hash(),
+        };
         assert_eq!(
             block_body_hash.as_ref(),
             casper_node_block_body_hash.as_ref()
