@@ -14,8 +14,7 @@ use casper_types::{
 #[cfg(test)]
 use proptest::prelude::*;
 
-use super::hash::DIGEST_LENGTH;
-
+const DIGEST_LENGTH: usize = 32;
 const RADIX: usize = 256;
 
 pub type TrieMerkleProof = casper_types::global_state::TrieMerkleProof<Key, StoredValue>;

@@ -1,8 +1,6 @@
 use casper_types::{EraId, JsonBlockWithSignatures, PublicKey, U512};
 use std::collections::BTreeMap;
 
-use crate::crypto::{verify, SignatureVerificationError};
-
 pub struct EraInfo {
     era_id: EraId,
     validator_weights: BTreeMap<PublicKey, U512>,
@@ -16,18 +14,18 @@ pub enum BlockSignaturesValidationError {
         block_header_era_id: EraId,
     },
     BogusValidator(PublicKey),
-    SignatureVerificationError(SignatureVerificationError),
+    SignatureVerificationError,
     InsufficientWeight {
         bad_signature_weight: U512,
         total_weight: U512,
     },
 }
 
-impl From<SignatureVerificationError> for BlockSignaturesValidationError {
-    fn from(signature_verification_error: SignatureVerificationError) -> Self {
-        BlockSignaturesValidationError::SignatureVerificationError(signature_verification_error)
-    }
-}
+// impl From<SignatureVerificationError> for BlockSignaturesValidationError {
+//     fn from(signature_verification_error: SignatureVerificationError) -> Self {
+//         BlockSignaturesValidationError::SignatureVerificationError(signature_verification_error)
+//     }
+// }
 
 impl EraInfo {
     pub fn new(era_id: EraId, validator_weights: BTreeMap<PublicKey, U512>) -> Self {
@@ -68,7 +66,8 @@ impl EraInfo {
                     public_key.clone(),
                 ));
             }
-            verify(public_key, &signature_data, signature)?;
+            casper_types::verify(&signature_data, signature, public_key)
+                .map_err(|_| BlockSignaturesValidationError::SignatureVerificationError)?;
 
             // If the block has `block_signature_weight >= 1/3 * total_weight`, its okay
             if U512::from(3) * block_signature_weight >= self.total_weight {
