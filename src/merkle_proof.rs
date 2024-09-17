@@ -4,17 +4,18 @@ use core::mem::MaybeUninit;
 
 use std::{boxed::Box, string::String, vec::Vec};
 
+use casper_storage::global_state::trie_store::operations::compute_state_hash;
+pub use casper_types::global_state::{TrieMerkleProof, TrieMerkleProofStep};
+
 use casper_types::{
     bytesrepr::{self, Bytes, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
-    CLValueError, Key, StoredValue,
+    CLValueError, Digest, Key, StoredValue,
 };
 #[cfg(test)]
 use proptest::prelude::*;
 
-use super::hash::{Digest, DIGEST_LENGTH};
+use super::hash::DIGEST_LENGTH;
 
-const TRIE_MERKLE_PROOF_STEP_NODE_ID: u8 = 0;
-const TRIE_MERKLE_PROOF_STEP_EXTENSION_ID: u8 = 1;
 const RADIX: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,8 +40,8 @@ impl Arbitrary for Pointer {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
-            any::<Digest>().prop_map(Pointer::LeafPointer),
-            any::<Digest>().prop_map(Pointer::NodePointer)
+            any::<[u8; DIGEST_LENGTH]>().prop_map(|h| Pointer::LeafPointer(Digest::from_raw(h))),
+            any::<[u8; DIGEST_LENGTH]>().prop_map(|h| Pointer::NodePointer(Digest::from_raw(h))),
         ]
         .boxed()
     }
@@ -179,6 +180,7 @@ impl FromBytes for PointerBlock {
     }
 }
 
+// FIXME not sure if this is used anywhere?
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Trie {
     Leaf { key: Key, value: StoredValue },
@@ -273,235 +275,6 @@ impl ToBytes for Trie {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TrieMerkleProofStep {
-    Node {
-        hole_index: u8,
-        indexed_pointers_with_hole: Vec<(u8, Pointer)>,
-    },
-    Extension {
-        affix: Bytes,
-    },
-}
-
-impl TrieMerkleProofStep {
-    pub fn node(hole_index: u8, indexed_pointers_with_hole: Vec<(u8, Pointer)>) -> Self {
-        Self::Node {
-            hole_index,
-            indexed_pointers_with_hole,
-        }
-    }
-
-    pub fn extension(affix: Vec<u8>) -> Self {
-        Self::Extension {
-            affix: affix.into(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl Arbitrary for TrieMerkleProofStep {
-    type Parameters = ();
-    type Strategy = BoxedStrategy<Self>;
-
-    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        prop_oneof![
-            (
-                <u8>::arbitrary(),
-                proptest::collection::vec((<u8>::arbitrary(), <Pointer>::arbitrary()), RADIX / 8)
-            )
-                .prop_map(|(hole_index, indexed_pointers_with_hole)| {
-                    TrieMerkleProofStep::Node {
-                        hole_index,
-                        indexed_pointers_with_hole,
-                    }
-                }),
-            proptest::collection::vec(<u8>::arbitrary(), 1..=6).prop_map(|affix| {
-                TrieMerkleProofStep::Extension {
-                    affix: affix.into(),
-                }
-            })
-        ]
-        .boxed()
-    }
-}
-
-impl ToBytes for TrieMerkleProofStep {
-    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
-        let mut ret: Vec<u8> = bytesrepr::allocate_buffer(self)?;
-        match self {
-            TrieMerkleProofStep::Node {
-                hole_index,
-                indexed_pointers_with_hole,
-            } => {
-                ret.push(TRIE_MERKLE_PROOF_STEP_NODE_ID);
-                ret.push(*hole_index);
-                ret.append(&mut indexed_pointers_with_hole.to_bytes()?)
-            }
-            TrieMerkleProofStep::Extension { affix } => {
-                ret.push(TRIE_MERKLE_PROOF_STEP_EXTENSION_ID);
-                ret.append(&mut affix.to_bytes()?)
-            }
-        };
-        Ok(ret)
-    }
-
-    fn serialized_length(&self) -> usize {
-        core::mem::size_of::<u8>()
-            + match self {
-                TrieMerkleProofStep::Node {
-                    hole_index,
-                    indexed_pointers_with_hole,
-                } => {
-                    (*hole_index).serialized_length()
-                        + (*indexed_pointers_with_hole).serialized_length()
-                }
-                TrieMerkleProofStep::Extension { affix } => affix.serialized_length(),
-            }
-    }
-}
-
-impl FromBytes for TrieMerkleProofStep {
-    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
-        let (tag, rem): (u8, &[u8]) = FromBytes::from_bytes(bytes)?;
-        match tag {
-            TRIE_MERKLE_PROOF_STEP_NODE_ID => {
-                let (hole_index, rem): (u8, &[u8]) = FromBytes::from_bytes(rem)?;
-                let (indexed_pointers_with_hole, rem): (Vec<(u8, Pointer)>, &[u8]) =
-                    FromBytes::from_bytes(rem)?;
-                Ok((
-                    TrieMerkleProofStep::Node {
-                        hole_index,
-                        indexed_pointers_with_hole,
-                    },
-                    rem,
-                ))
-            }
-            TRIE_MERKLE_PROOF_STEP_EXTENSION_ID => {
-                let (affix, rem): (_, &[u8]) = FromBytes::from_bytes(rem)?;
-                Ok((TrieMerkleProofStep::Extension { affix }, rem))
-            }
-            _ => Err(bytesrepr::Error::Formatting),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrieMerkleProof {
-    key: Key,
-    value: StoredValue,
-    proof_steps: Vec<TrieMerkleProofStep>,
-}
-
-impl TrieMerkleProof {
-    pub fn new(key: Key, value: StoredValue, proof_steps: Vec<TrieMerkleProofStep>) -> Self {
-        TrieMerkleProof {
-            key,
-            value,
-            proof_steps,
-        }
-    }
-
-    pub fn key(&self) -> &Key {
-        &self.key
-    }
-
-    pub fn value(&self) -> &StoredValue {
-        &self.value
-    }
-
-    pub fn proof_steps(&self) -> &Vec<TrieMerkleProofStep> {
-        &self.proof_steps
-    }
-
-    pub fn into_value(self) -> StoredValue {
-        self.value
-    }
-
-    pub fn compute_state_hash(&self) -> Result<Digest, bytesrepr::Error> {
-        let mut hash = {
-            let leaf = Trie::Leaf {
-                key: self.key,
-                value: self.value.clone(),
-            };
-            leaf.trie_hash()?
-        };
-
-        for (proof_step_index, proof_step) in self.proof_steps.iter().enumerate() {
-            let pointer = if proof_step_index == 0 {
-                Pointer::LeafPointer(hash)
-            } else {
-                Pointer::NodePointer(hash)
-            };
-            let proof_step_bytes = match proof_step {
-                TrieMerkleProofStep::Node {
-                    hole_index,
-                    indexed_pointers_with_hole,
-                } => {
-                    let hole_index = *hole_index;
-                    assert!(hole_index as usize <= RADIX, "hole_index exceeded RADIX");
-                    let mut indexed_pointers = indexed_pointers_with_hole.clone();
-                    indexed_pointers.push((hole_index, pointer));
-                    Trie::node(&indexed_pointers).to_bytes()?
-                }
-                TrieMerkleProofStep::Extension { affix } => {
-                    Trie::extension(affix.clone().into(), pointer).to_bytes()?
-                }
-            };
-            hash = Digest::hash(&proof_step_bytes);
-        }
-        Ok(hash)
-    }
-}
-
-#[cfg(test)]
-impl Arbitrary for TrieMerkleProof {
-    type Parameters = ();
-    type Strategy = BoxedStrategy<Self>;
-
-    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        (
-            casper_types::gens::key_arb(),
-            casper_types::gens::stored_value_arb(),
-            proptest::collection::vec(<TrieMerkleProofStep>::arbitrary(), 1..=6),
-        )
-            .prop_map(|(key, value, proof_steps)| TrieMerkleProof::new(key, value, proof_steps))
-            .boxed()
-    }
-}
-
-impl ToBytes for TrieMerkleProof {
-    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
-        let mut ret: Vec<u8> = bytesrepr::allocate_buffer(self)?;
-        ret.append(&mut self.key.to_bytes()?);
-        ret.append(&mut self.value.to_bytes()?);
-        ret.append(&mut self.proof_steps.to_bytes()?);
-        Ok(ret)
-    }
-
-    fn serialized_length(&self) -> usize {
-        self.key.serialized_length()
-            + self.value.serialized_length()
-            + self.proof_steps.serialized_length()
-    }
-}
-
-impl FromBytes for TrieMerkleProof {
-    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
-        let (key, rem): (Key, &[u8]) = FromBytes::from_bytes(bytes)?;
-        let (value, rem): (StoredValue, &[u8]) = FromBytes::from_bytes(rem)?;
-        let (proof_steps, rem): (Vec<TrieMerkleProofStep>, &[u8]) = FromBytes::from_bytes(rem)?;
-        Ok((
-            TrieMerkleProof {
-                key,
-                value,
-                proof_steps,
-            },
-            rem,
-        ))
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum ValidationError {
     PathLengthDifferentThanProofLessOne,
@@ -548,7 +321,7 @@ impl<'a, 'b> QueryInfo<'a, 'b> {
 }
 
 pub fn process_query_proofs<'a>(
-    proofs: &'a [TrieMerkleProof],
+    proofs: &'a [TrieMerkleProof<Key, StoredValue>],
     path: &[String],
 ) -> Result<QueryInfo<'a, 'a>, ValidationError> {
     if proofs.len() != path.len() + 1 {
@@ -560,7 +333,7 @@ pub fn process_query_proofs<'a>(
     // length check above means we are safe to unwrap here
     let first_proof = proofs_iter.next().unwrap();
 
-    let state_root = first_proof.compute_state_hash()?;
+    let state_root = compute_state_hash(first_proof)?;
 
     let mut proof_value = first_proof.value();
 
@@ -580,7 +353,7 @@ pub fn process_query_proofs<'a>(
             return Err(ValidationError::UnexpectedKey);
         }
 
-        if state_root != proof.compute_state_hash()? {
+        if state_root != compute_state_hash(proof)? {
             return Err(ValidationError::InvalidProofHash);
         }
 
@@ -592,52 +365,4 @@ pub fn process_query_proofs<'a>(
         key: first_proof.key(),
         stored_value: proof_value,
     })
-}
-
-#[cfg(test)]
-mod test {
-    extern crate std;
-
-    use casper_types::global_state::TrieMerkleProof as CasperTrieMerkleProof;
-    use casper_types::{bytesrepr::ToBytes, Key, StoredValue};
-    use test_strategy::proptest;
-
-    use crate::hash::DIGEST_LENGTH;
-
-    use super::TrieMerkleProof;
-
-    #[proptest]
-    fn bytesrepr_trie_merkle_proof_round_trip(trie_merkle_proof: TrieMerkleProof) {
-        let serialized_trie_merkle_proof = trie_merkle_proof.to_bytes().unwrap();
-        let casper_trie_merkle_proof: CasperTrieMerkleProof<Key, StoredValue> =
-            casper_types::bytesrepr::deserialize(serialized_trie_merkle_proof.clone()).unwrap();
-        let serialized_casper_trie_merkle_proof =
-            casper_types::bytesrepr::serialize(&casper_trie_merkle_proof).unwrap();
-        assert_eq!(
-            serialized_trie_merkle_proof,
-            serialized_casper_trie_merkle_proof
-        );
-        let deserialized_trie_merkle_proof: TrieMerkleProof =
-            casper_types::bytesrepr::deserialize(serialized_casper_trie_merkle_proof.clone())
-                .unwrap();
-        assert_eq!(trie_merkle_proof, deserialized_trie_merkle_proof);
-    }
-
-    #[proptest]
-    fn trie_merkle_proof_hash_compat(trie_merkle_proof: TrieMerkleProof) {
-        let serialized_trie_merkle_proof = trie_merkle_proof.to_bytes().unwrap();
-        let casper_trie_merkle_proof: CasperTrieMerkleProof<Key, StoredValue> =
-            casper_types::bytesrepr::deserialize(serialized_trie_merkle_proof.clone()).unwrap();
-        let trie_merkle_root_bytes: [u8; DIGEST_LENGTH] =
-            trie_merkle_proof.compute_state_hash().unwrap().into();
-
-        let casper_trie_merkle_root_bytes: [u8; DIGEST_LENGTH] =
-            casper_storage::global_state::trie_store::operations::compute_state_hash(
-                &casper_trie_merkle_proof,
-            )
-            .unwrap()
-            .into();
-
-        assert_eq!(trie_merkle_root_bytes, casper_trie_merkle_root_bytes);
-    }
 }

@@ -9,7 +9,7 @@ fn query_proofs() {
     let query_info = process_query_proofs(&proofs, &[]).unwrap();
     assert_eq!(
         "9253bf8484bae2b6e4d5302c792c6a79f729b2cc2a9d87beb262d3266a424efa",
-        query_info.state_root().to_hex(),
+        base16::encode_lower(query_info.state_root()),
         "hex of state root not as expected"
     );
     if let casper_types::StoredValue::Account(account) = query_info.stored_value() {
