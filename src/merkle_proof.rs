@@ -2,7 +2,7 @@
 // and https://github.com/casper-network/casper-node/blob/76ea7104cda02fcf1bd6edb686fd00b162dabde8/execution_engine/src/storage/trie/merkle_proof.rs
 use core::mem::MaybeUninit;
 
-use alloc::{boxed::Box, string::String, vec::Vec};
+use std::{boxed::Box, string::String, vec::Vec};
 
 use casper_types::{
     bytesrepr::{self, Bytes, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
@@ -465,9 +465,7 @@ impl Arbitrary for TrieMerkleProof {
             casper_types::gens::stored_value_arb(),
             proptest::collection::vec(<TrieMerkleProofStep>::arbitrary(), 1..=6),
         )
-            .prop_map(|(key, value, proof_steps)| {
-                TrieMerkleProof::new(key, value, proof_steps)
-            })
+            .prop_map(|(key, value, proof_steps)| TrieMerkleProof::new(key, value, proof_steps))
             .boxed()
     }
 }

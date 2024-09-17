@@ -1,6 +1,6 @@
-use alloc::{string::String, vec::Vec};
 use casper_types::bytesrepr::{FromBytes, ToBytes};
 use itertools::Itertools;
+use std::{string::String, vec::Vec};
 
 pub const DIGEST_LENGTH: usize = 32;
 const SENTINEL_MERKLE_TREE: Digest = Digest([2u8; DIGEST_LENGTH]);
@@ -148,8 +148,8 @@ impl<'de> serde::Deserialize<'de> for Digest {
 mod test {
     extern crate std;
 
-    use alloc::vec::Vec;
     use casper_types::bytesrepr::{deserialize_from_slice, ToBytes};
+    use std::vec::Vec;
     use test_strategy::proptest;
 
     use super::{Digest, DIGEST_LENGTH};

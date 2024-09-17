@@ -1,9 +1,7 @@
-use alloc::collections::BTreeMap;
 use casper_types::{EraId, JsonBlockWithSignatures, PublicKey, U512};
+use std::collections::BTreeMap;
 
 use crate::crypto::{verify, SignatureVerificationError};
-
-use super::block_header::BlockHash;
 
 pub struct EraInfo {
     era_id: EraId,
@@ -81,20 +79,5 @@ impl EraInfo {
             bad_signature_weight: block_signature_weight,
             total_weight: self.total_weight,
         })
-    }
-}
-
-pub struct ParentHashAndCurrentHeight {
-    parent_hash: BlockHash,
-    current_height: u64,
-}
-
-impl ParentHashAndCurrentHeight {
-    pub fn parent_hash(&self) -> &BlockHash {
-        &self.parent_hash
-    }
-
-    pub fn current_height(&self) -> u64 {
-        self.current_height
     }
 }

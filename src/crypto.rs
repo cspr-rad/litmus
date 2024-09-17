@@ -54,7 +54,6 @@ pub fn verify<T: AsRef<[u8]>>(
 mod test {
     extern crate std;
 
-    use alloc::vec::Vec;
     use casper_types::PublicKey as CasperPublicKey;
     use casper_types::SecretKey as CasperSecretKey;
     use ed25519_dalek::SigningKey as Ed25519SecretKey;

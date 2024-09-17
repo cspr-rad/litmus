@@ -1,4 +1,4 @@
-use alloc::{collections::BTreeMap, vec::Vec};
+use std::{collections::BTreeMap, vec::Vec};
 
 #[cfg(test)]
 use proptest::prelude::*;

@@ -1,17 +1,4 @@
-use casper_litmus::{
-    block_header::BlockHeaderV1,
-    json_compatibility::{JsonBlock, JsonBlockHeader},
-    merkle_proof::{process_query_proofs, TrieMerkleProof},
-};
-
-#[test]
-fn json_block_header_round_trip() {
-    let json_block: JsonBlock =
-        serde_json::from_str(include_str!("assets/blocks/block-0.json")).unwrap();
-    let converted_block_header = BlockHeaderV1::from(json_block.header().clone());
-    let reconstituted_json_block_header = JsonBlockHeader::from(converted_block_header.clone());
-    assert_eq!(json_block.header(), &reconstituted_json_block_header);
-}
+use casper_litmus::merkle_proof::{process_query_proofs, TrieMerkleProof};
 
 #[test]
 fn query_proofs() {
