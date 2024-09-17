@@ -5,7 +5,7 @@ use core::mem::MaybeUninit;
 use std::{boxed::Box, string::String, vec::Vec};
 
 use casper_storage::global_state::trie_store::operations::compute_state_hash;
-pub use casper_types::global_state::{TrieMerkleProof, TrieMerkleProofStep};
+pub use casper_types::global_state::TrieMerkleProofStep;
 
 use casper_types::{
     bytesrepr::{self, Bytes, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
@@ -17,6 +17,8 @@ use proptest::prelude::*;
 use super::hash::DIGEST_LENGTH;
 
 const RADIX: usize = 256;
+
+pub type TrieMerkleProof = casper_types::global_state::TrieMerkleProof<Key, StoredValue>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pointer {
@@ -321,7 +323,7 @@ impl<'a, 'b> QueryInfo<'a, 'b> {
 }
 
 pub fn process_query_proofs<'a>(
-    proofs: &'a [TrieMerkleProof<Key, StoredValue>],
+    proofs: &'a [TrieMerkleProof],
     path: &[String],
 ) -> Result<QueryInfo<'a, 'a>, ValidationError> {
     if proofs.len() != path.len() + 1 {
