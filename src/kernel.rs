@@ -1,4 +1,4 @@
-use casper_types::{EraId, JsonBlockWithSignatures, PublicKey, U512};
+use casper_types::{BlockBody, EraId, JsonBlockWithSignatures, PublicKey, U512};
 use std::collections::BTreeMap;
 
 pub struct EraInfo {
@@ -15,17 +15,13 @@ pub enum BlockSignaturesValidationError {
     },
     BogusValidator(PublicKey),
     SignatureVerificationError,
+    BlockHashMismatch,
+    BlockBodyHashMismatch,
     InsufficientWeight {
         bad_signature_weight: U512,
         total_weight: U512,
     },
 }
-
-// impl From<SignatureVerificationError> for BlockSignaturesValidationError {
-//     fn from(signature_verification_error: SignatureVerificationError) -> Self {
-//         BlockSignaturesValidationError::SignatureVerificationError(signature_verification_error)
-//     }
-// }
 
 impl EraInfo {
     pub fn new(era_id: EraId, validator_weights: BTreeMap<PublicKey, U512>) -> Self {
@@ -55,8 +51,32 @@ impl EraInfo {
                 block_header_era_id: block.era_id(),
             });
         }
+
+        let block_header = block.clone_header();
+        let block_body = block.clone_body();
+
+        // The OnceCell in these will not be initialized prior to calling these hash
+        // methods since the `OnceCell` is not serialized upstream.
+        let computed_block_hash = block_header.block_hash();
+        let computed_block_body_hash = match block_body {
+            BlockBody::V1(block_body_v1) => block_body_v1.hash(),
+            BlockBody::V2(block_body_v2) => block_body_v2.hash(),
+        };
+
+        let claimed_block_hash = block.hash();
+        let claimed_block_body_hash = block.body_hash();
+
+        if computed_block_hash != *claimed_block_hash {
+            return Err(BlockSignaturesValidationError::BlockHashMismatch);
+        }
+
+        if computed_block_body_hash != *claimed_block_body_hash {
+            return Err(BlockSignaturesValidationError::BlockBodyHashMismatch);
+        }
+
         // See: https://github.com/casper-network/casper-node/blob/8ca9001dabba0dae95f92ad8c54eddd163200b5d/node/src/types/block.rs#L2465-L2474
-        let mut signature_data = block.hash().inner().into_vec();
+        let mut signature_data = computed_block_hash.inner().into_vec();
+
         signature_data.extend_from_slice(&block.era_id().to_le_bytes());
         for (public_key, signature) in proofs.iter() {
             if let Some(validator_weight) = self.validator_weights.get(public_key) {
